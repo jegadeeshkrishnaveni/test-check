@@ -9,14 +9,24 @@
         {
           "id": "m1",
           "question": "Which keyword is used to inherit a class in object-oriented programming?",
-          "options": ["implements", "extends", "inherits", "super"],
+          "options": [
+            "implements",
+            "extends",
+            "inherits",
+            "super"
+          ],
           "answer": 1,
           "marks": 1
         },
         {
           "id": "m2",
           "question": "What is the time complexity of binary search on a sorted array of size n?",
-          "options": ["O(n)", "O(log n)", "O(n log n)", "O(1)"],
+          "options": [
+            "O(n)",
+            "O(log n)",
+            "O(n log n)",
+            "O(1)"
+          ],
           "answer": 1,
           "marks": 1
         }
@@ -26,28 +36,69 @@
           "id": "p1",
           "title": "Sum of Two Numbers",
           "statement": "Read two space-separated integers from input and print their sum.",
-          "allowedLanguages": ["python", "javascript", "java", "c"],
+          "allowedLanguages": [
+            "python",
+            "javascript",
+            "java",
+            "c"
+          ],
           "marks": 5,
           "testCases": [
-            { "input": "2 3", "expectedOutput": "5", "isSample": true },
-            { "input": "10 -4", "expectedOutput": "6", "isSample": true },
-            { "input": "100 250", "expectedOutput": "350", "isSample": false },
-            { "input": "0 0", "expectedOutput": "0", "isSample": false }
+            {
+              "input": "2 3",
+              "expectedOutput": "5",
+              "isSample": true
+            },
+            {
+              "input": "10 -4",
+              "expectedOutput": "6",
+              "isSample": true
+            },
+            {
+              "input": "100 250",
+              "expectedOutput": "350",
+              "isSample": false
+            },
+            {
+              "input": "0 0",
+              "expectedOutput": "0",
+              "isSample": false
+            }
           ]
         },
         {
           "id": "p2",
           "title": "Reverse a String",
           "statement": "Read a single line string from input and print it reversed.",
-          "allowedLanguages": ["python", "javascript", "java", "c"],
+          "allowedLanguages": [
+            "python",
+            "javascript",
+            "java",
+            "c"
+          ],
           "marks": 5,
           "testCases": [
-            { "input": "hello", "expectedOutput": "olleh", "isSample": true },
-            { "input": "coding", "expectedOutput": "gnidoc", "isSample": true },
-            { "input": "racecar", "expectedOutput": "racecar", "isSample": false }
+            {
+              "input": "hello",
+              "expectedOutput": "olleh",
+              "isSample": true
+            },
+            {
+              "input": "coding",
+              "expectedOutput": "gnidoc",
+              "isSample": true
+            },
+            {
+              "input": "racecar",
+              "expectedOutput": "racecar",
+              "isSample": false
+            }
           ]
         }
       ]
     }
-  }
+  },
+  "activeTestIds": [
+    "default"
+  ]
 }

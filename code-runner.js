@@ -37,14 +37,14 @@ if (typeof window !== 'undefined') {
 
 /**
  * Executes code via server compiler toolchains (OpenJDK javac/java, gcc, g++, python3)
- * with robust in-browser fallback engine.
+ * with robust client-side online compiler and in-browser fallback engine.
  * @param {string} language - 'python' | 'java' | 'c' | 'cpp' | 'javascript'
  * @param {string} code - source code written by student
  * @param {string} stdin - standard input string
- * @param {number} timeoutMs - max execution time in ms (default 5000ms)
+ * @param {number} timeoutMs - max execution time in ms (default 6000ms)
  * @returns {Promise<{ output: string, error?: string, executionTimeMs: number }>}
  */
-export async function executeCodeInBrowser(language, code, stdin = '', timeoutMs = 5000) {
+export async function executeCodeInBrowser(language, code, stdin = '', timeoutMs = 6000) {
   const startTime = performance.now();
   const rawLang = (language || 'python').toLowerCase().trim();
   let lang = rawLang;
@@ -52,10 +52,10 @@ export async function executeCodeInBrowser(language, code, stdin = '', timeoutMs
   if (lang === 'c++') lang = 'cpp';
   if (lang === 'js') lang = 'javascript';
 
-  // 1. Always execute on native backend compiler/runtime toolchain (OpenJDK, GCC, G++, Python3)
+  // 1. Primary: execute on backend compiler/runtime toolchain
   try {
     const controller = new AbortController();
-    const fetchTimer = setTimeout(() => controller.abort(), timeoutMs + 3000);
+    const fetchTimer = setTimeout(() => controller.abort(), timeoutMs + 4000);
     const res = await fetch('/api/run-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -73,10 +73,64 @@ export async function executeCodeInBrowser(language, code, stdin = '', timeoutMs
       };
     }
   } catch (err) {
-    // Backend call unreachable or network offline, fall back to in-browser engine below
+    // Backend call unreachable or network timeout, fall back to direct compiler below
   }
 
-  // 2. In-Browser execution fallback (offline mode)
+  // 2. Secondary: Direct Wandbox execution from browser (if server is offline or proxy is blocked)
+  try {
+    let compiler = 'cpython-3.12.7';
+    let codeToSend = code;
+    if (lang === 'java') {
+      compiler = 'openjdk-jdk-22+36';
+      codeToSend = code.replace(/\bpublic\s+class\b/g, 'class');
+    } else if (lang === 'c') {
+      compiler = 'gcc-13.2.0-c';
+    } else if (lang === 'cpp') {
+      compiler = 'gcc-13.2.0';
+    } else if (lang === 'javascript') {
+      compiler = 'nodejs-20.17.0';
+    }
+
+    const controller = new AbortController();
+    const fetchTimer = setTimeout(() => controller.abort(), timeoutMs + 4000);
+    const wandboxRes = await fetch('https://wandbox.org/api/compile.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ compiler, code: codeToSend, stdin: String(stdin || '') }),
+      signal: controller.signal
+    });
+    clearTimeout(fetchTimer);
+
+    if (wandboxRes.ok) {
+      const data = await wandboxRes.json();
+      const executionTimeMs = Math.round(performance.now() - startTime);
+
+      if (data.compiler_error || (data.status !== '0' && data.status !== 0 && !data.program_output && !data.program_error)) {
+        return {
+          output: `Compilation Error:\n${(data.compiler_error || data.compiler_message || '').trim()}`,
+          error: 'Compilation Error',
+          executionTimeMs
+        };
+      }
+
+      let out = data.program_output || '';
+      if (data.program_error) {
+        out = (out ? out + '\n' : '') + data.program_error;
+      } else if (data.program_message && !out) {
+        out = data.program_message;
+      }
+
+      return {
+        output: (out || '').replace(/\r\n/g, '\n'),
+        error: data.program_error ? 'Runtime Error' : null,
+        executionTimeMs
+      };
+    }
+  } catch (wandboxErr) {
+    // Wandbox unreachable, fall back to in-browser offline engine
+  }
+
+  // 3. Tertiary: In-Browser execution fallback (offline mode)
   if (lang === 'python') {
     return runPythonInBrowser(code, stdin, timeoutMs, startTime);
   } else if (lang === 'java') {
@@ -87,7 +141,7 @@ export async function executeCodeInBrowser(language, code, stdin = '', timeoutMs
     return runJavaScriptInBrowser(code, stdin, timeoutMs, startTime);
   }
 
-  // Fallback
+  // Final Fallback
   return runJavaInBrowser(code, stdin, timeoutMs, startTime);
 }
 

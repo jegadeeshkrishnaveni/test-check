@@ -249,8 +249,80 @@ async function autoSyncToGitHub(reason = 'Portal update') {
 
 // ======================== API ROUTES ========================
 
-import { spawn, exec } from 'child_process';
+import { spawn, exec, execSync } from 'child_process';
 import os from 'os';
+
+// Check if a system binary is installed locally
+const localBinaryCache = new Map();
+function hasCmd(cmd) {
+  if (localBinaryCache.has(cmd)) return localBinaryCache.get(cmd);
+  try {
+    execSync(`command -v ${cmd}`, { stdio: 'ignore' });
+    localBinaryCache.set(cmd, true);
+    return true;
+  } catch (e) {
+    localBinaryCache.set(cmd, false);
+    return false;
+  }
+}
+
+// Helper to execute Wandbox online compilation & execution (JDK 22, GCC 13, G++, Python 3, Node.js)
+async function executeViaWandbox(compiler, code, stdin = '', timeoutMs = 8000) {
+  const startTime = Date.now();
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs + 4000);
+    const res = await fetch('https://wandbox.org/api/compile.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        compiler,
+        code,
+        stdin: String(stdin || '')
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const txt = await res.text();
+      return { output: `Compiler API response error: ${txt}`, error: 'Compiler API Error', executionTimeMs: Date.now() - startTime };
+    }
+
+    const data = await res.json();
+    const executionTimeMs = Date.now() - startTime;
+
+    // 1. Compilation Error
+    if (data.compiler_error || (data.status !== '0' && data.status !== 0 && !data.program_output && !data.program_error)) {
+      const err = (data.compiler_error || data.compiler_message || 'Compilation Error').trim();
+      return {
+        output: `Compilation Error:\n${err}`,
+        error: 'Compilation Error',
+        executionTimeMs
+      };
+    }
+
+    // 2. Program Output & Runtime Error
+    let out = data.program_output || '';
+    if (data.program_error) {
+      out = (out ? out + '\n' : '') + data.program_error;
+    } else if (data.program_message && !out) {
+      out = data.program_message;
+    }
+
+    return {
+      output: (out || '').replace(/\r\n/g, '\n'),
+      error: data.program_error ? 'Runtime Error' : null,
+      executionTimeMs
+    };
+  } catch (err) {
+    return {
+      output: `Execution error: ${err.message}`,
+      error: err.message,
+      executionTimeMs: Date.now() - startTime
+    };
+  }
+}
 
 // Helper to execute child process with timeout and stdin
 function runProcess({ cmd, args, cwd, stdin, timeoutMs }) {
@@ -287,221 +359,253 @@ function runProcess({ cmd, args, cwd, stdin, timeoutMs }) {
       if (isDone) return;
       isDone = true;
       clearTimeout(timer);
-      resolve({ output: err.message, error: err.message, exitCode: -1 });
+      resolve({ output: err.message, error: err.message, exitCode: -1, isSpawnError: true });
     });
 
     if (stdin !== undefined && stdin !== null) {
-      child.stdin.write(String(stdin));
+      try {
+        child.stdin.write(String(stdin));
+      } catch (e) {}
     }
-    child.stdin.end();
+    try {
+      child.stdin.end();
+    } catch (e) {}
   });
 }
 
-// Code execution endpoint for 4 core languages: Python, Java, C, C++
+// Code execution endpoint for 4 core languages: Python, Java, C, C++ (and JS)
 app.post('/api/run-code', async (req, res) => {
-  const { language, code = '', stdin = '', timeoutMs = 4000 } = req.body;
+  const { language, code = '', stdin = '', timeoutMs = 6000 } = req.body;
   const lang = (language || 'python').toLowerCase().trim();
   const startTime = Date.now();
 
   if (lang === 'python' || lang === 'py') {
-    try {
-      const runRes = await runProcess({
-        cmd: 'python3',
-        args: ['-u', '-c', code],
-        stdin,
-        timeoutMs
-      });
-      const executionTimeMs = Date.now() - startTime;
-      if (runRes.error) {
-        return res.json({ output: runRes.output || runRes.error, error: runRes.error, executionTimeMs });
-      }
-      if (runRes.exitCode !== 0 && runRes.stderr) {
-        return res.json({
-          output: (runRes.stdout ? runRes.stdout + '\n' : '') + runRes.stderr,
-          error: runRes.stderr,
-          executionTimeMs
+    if (hasCmd('python3')) {
+      try {
+        const runRes = await runProcess({
+          cmd: 'python3',
+          args: ['-u', '-c', code],
+          stdin,
+          timeoutMs
         });
-      }
-      return res.json({
-        output: (runRes.stdout || '').replace(/\r\n/g, '\n'),
-        error: null,
-        executionTimeMs
-      });
-    } catch (err) {
-      return res.status(500).json({ error: err.message, output: err.message });
+        const executionTimeMs = Date.now() - startTime;
+        if (!runRes.isSpawnError) {
+          if (runRes.error && runRes.error === 'Time Limit Exceeded') {
+            return res.json({ output: runRes.output, error: runRes.error, executionTimeMs });
+          }
+          if (runRes.exitCode !== 0 && runRes.stderr) {
+            return res.json({
+              output: (runRes.stdout ? runRes.stdout + '\n' : '') + runRes.stderr,
+              error: runRes.stderr,
+              executionTimeMs
+            });
+          }
+          return res.json({
+            output: (runRes.stdout || '').replace(/\r\n/g, '\n'),
+            error: null,
+            executionTimeMs
+          });
+        }
+      } catch (err) {}
     }
+    // Fallback to Wandbox Python 3.12
+    const wandboxRes = await executeViaWandbox('cpython-3.12.7', code, stdin, timeoutMs);
+    return res.json(wandboxRes);
   } else if (lang === 'java') {
-    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'java_exec_'));
-    try {
-      // Find class name or default to Main
-      let className = 'Main';
-      const pubMatch = code.match(/public\s+class\s+([A-Za-z0-9_]+)/);
-      if (pubMatch) {
-        className = pubMatch[1];
-      } else {
-        const clsMatch = code.match(/class\s+([A-Za-z0-9_]+)/);
-        if (clsMatch) className = clsMatch[1];
-      }
+    // Sanitize Java code for single-file execution: convert "public class X" to "class X"
+    // so any class name works with OpenJDK without public file-name restrictions
+    const wandboxJavaCode = code.replace(/\bpublic\s+class\b/g, 'class');
 
-      const javaFilePath = path.join(tmpDir, `${className}.java`);
-      await fs.promises.writeFile(javaFilePath, code, 'utf-8');
+    // Attempt local javac if installed
+    if (hasCmd('javac') && hasCmd('java')) {
+      let tmpDir = null;
+      try {
+        tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'java_exec_'));
+        let className = 'Main';
+        const pubMatch = code.match(/public\s+class\s+([A-Za-z0-9_]+)/);
+        if (pubMatch) className = pubMatch[1];
+        else {
+          const clsMatch = code.match(/class\s+([A-Za-z0-9_]+)/);
+          if (clsMatch) className = clsMatch[1];
+        }
+        const javaFilePath = path.join(tmpDir, `${className}.java`);
+        await fs.promises.writeFile(javaFilePath, code, 'utf-8');
 
-      // 1. Compile with javac
-      const compileRes = await runProcess({
-        cmd: 'javac',
-        args: ['-encoding', 'UTF-8', `${className}.java`],
-        cwd: tmpDir,
-        timeoutMs: 6000
-      });
+        const compileRes = await runProcess({
+          cmd: 'javac',
+          args: ['-encoding', 'UTF-8', `${className}.java`],
+          cwd: tmpDir,
+          timeoutMs: 6000
+        });
 
-      if (compileRes.exitCode !== 0) {
+        if (compileRes.exitCode !== 0) {
+          const executionTimeMs = Date.now() - startTime;
+          const errOut = (compileRes.stderr || compileRes.stdout || 'Java Compilation Error').replace(new RegExp(tmpDir + '/?', 'g'), '');
+          return res.json({
+            output: `Compilation Error:\n${errOut}`,
+            error: 'Compilation Error',
+            executionTimeMs
+          });
+        }
+
+        const runRes = await runProcess({
+          cmd: 'java',
+          args: ['-Xmx256m', '-Xss32m', '-Dfile.encoding=UTF-8', className],
+          cwd: tmpDir,
+          stdin,
+          timeoutMs
+        });
+
         const executionTimeMs = Date.now() - startTime;
-        const errOut = (compileRes.stderr || compileRes.stdout || 'Java Compilation Error').replace(new RegExp(tmpDir + '/?', 'g'), '');
+        if (runRes.error && runRes.error === 'Time Limit Exceeded') {
+          return res.json({ output: runRes.output, error: runRes.error, executionTimeMs });
+        }
+        if (runRes.exitCode !== 0 && runRes.stderr) {
+          return res.json({
+            output: (runRes.stdout ? runRes.stdout + '\n' : '') + runRes.stderr.replace(new RegExp(tmpDir + '/?', 'g'), ''),
+            error: runRes.stderr,
+            executionTimeMs
+          });
+        }
         return res.json({
-          output: `Compilation Error:\n${errOut}`,
-          error: 'Compilation Error',
+          output: (runRes.stdout || '').replace(/\r\n/g, '\n'),
+          error: null,
           executionTimeMs
         });
+      } catch (e) {
+        // Continue to Wandbox
+      } finally {
+        if (tmpDir) {
+          try { await fs.promises.rm(tmpDir, { recursive: true, force: true }); } catch (e) {}
+        }
       }
-
-      // 2. Run with java
-      const runRes = await runProcess({
-        cmd: 'java',
-        args: ['-Xmx256m', '-Xss32m', '-Dfile.encoding=UTF-8', className],
-        cwd: tmpDir,
-        stdin,
-        timeoutMs
-      });
-
-      const executionTimeMs = Date.now() - startTime;
-      if (runRes.error) {
-        return res.json({ output: runRes.output || runRes.error, error: runRes.error, executionTimeMs });
-      }
-      if (runRes.exitCode !== 0 && runRes.stderr) {
-        return res.json({
-          output: (runRes.stdout ? runRes.stdout + '\n' : '') + runRes.stderr.replace(new RegExp(tmpDir + '/?', 'g'), ''),
-          error: runRes.stderr,
-          executionTimeMs
-        });
-      }
-      return res.json({
-        output: (runRes.stdout || '').replace(/\r\n/g, '\n'),
-        error: null,
-        executionTimeMs
-      });
-    } catch (err) {
-      return res.status(500).json({ error: err.message, output: err.message });
-    } finally {
-      try { await fs.promises.rm(tmpDir, { recursive: true, force: true }); } catch (e) {}
     }
+
+    // Run on OpenJDK 22 via Wandbox
+    const wandboxRes = await executeViaWandbox('openjdk-jdk-22+36', wandboxJavaCode, stdin, timeoutMs);
+    return res.json(wandboxRes);
   } else if (lang === 'c') {
-    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'c_exec_'));
-    try {
-      const cFilePath = path.join(tmpDir, 'prog.c');
-      await fs.promises.writeFile(cFilePath, code, 'utf-8');
+    if (hasCmd('gcc')) {
+      let tmpDir = null;
+      try {
+        tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'c_exec_'));
+        const cFilePath = path.join(tmpDir, 'prog.c');
+        await fs.promises.writeFile(cFilePath, code, 'utf-8');
 
-      // 1. Compile with gcc
-      const compileRes = await runProcess({
-        cmd: 'gcc',
-        args: ['-O2', '-pipe', 'prog.c', '-o', 'prog', '-lm'],
-        cwd: tmpDir,
-        timeoutMs: 5000
-      });
+        const compileRes = await runProcess({
+          cmd: 'gcc',
+          args: ['-O2', '-pipe', 'prog.c', '-o', 'prog', '-lm'],
+          cwd: tmpDir,
+          timeoutMs: 5000
+        });
 
-      if (compileRes.exitCode !== 0) {
+        if (compileRes.exitCode !== 0) {
+          const executionTimeMs = Date.now() - startTime;
+          const errOut = (compileRes.stderr || compileRes.stdout || 'C Compilation Error').replace(new RegExp(tmpDir + '/?', 'g'), '');
+          return res.json({
+            output: `Compilation Error:\n${errOut}`,
+            error: 'Compilation Error',
+            executionTimeMs
+          });
+        }
+
+        const runRes = await runProcess({
+          cmd: './prog',
+          args: [],
+          cwd: tmpDir,
+          stdin,
+          timeoutMs
+        });
+
         const executionTimeMs = Date.now() - startTime;
-        const errOut = (compileRes.stderr || compileRes.stdout || 'C Compilation Error').replace(new RegExp(tmpDir + '/?', 'g'), '');
+        if (runRes.error && runRes.error === 'Time Limit Exceeded') {
+          return res.json({ output: runRes.output, error: runRes.error, executionTimeMs });
+        }
+        if (runRes.exitCode !== 0 && runRes.stderr) {
+          return res.json({
+            output: (runRes.stdout ? runRes.stdout + '\n' : '') + runRes.stderr,
+            error: runRes.stderr,
+            executionTimeMs
+          });
+        }
         return res.json({
-          output: `Compilation Error:\n${errOut}`,
-          error: 'Compilation Error',
+          output: (runRes.stdout || '').replace(/\r\n/g, '\n'),
+          error: null,
           executionTimeMs
         });
+      } catch (e) {
+        // Continue to Wandbox
+      } finally {
+        if (tmpDir) {
+          try { await fs.promises.rm(tmpDir, { recursive: true, force: true }); } catch (e) {}
+        }
       }
-
-      // 2. Run binary
-      const runRes = await runProcess({
-        cmd: './prog',
-        args: [],
-        cwd: tmpDir,
-        stdin,
-        timeoutMs
-      });
-
-      const executionTimeMs = Date.now() - startTime;
-      if (runRes.error) {
-        return res.json({ output: runRes.output || runRes.error, error: runRes.error, executionTimeMs });
-      }
-      if (runRes.exitCode !== 0 && runRes.stderr) {
-        return res.json({
-          output: (runRes.stdout ? runRes.stdout + '\n' : '') + runRes.stderr,
-          error: runRes.stderr,
-          executionTimeMs
-        });
-      }
-      return res.json({
-        output: (runRes.stdout || '').replace(/\r\n/g, '\n'),
-        error: null,
-        executionTimeMs
-      });
-    } catch (err) {
-      return res.status(500).json({ error: err.message, output: err.message });
-    } finally {
-      try { await fs.promises.rm(tmpDir, { recursive: true, force: true }); } catch (e) {}
     }
+
+    // Run on GCC 13 via Wandbox
+    const wandboxRes = await executeViaWandbox('gcc-13.2.0-c', code, stdin, timeoutMs);
+    return res.json(wandboxRes);
   } else if (lang === 'cpp' || lang === 'c++') {
-    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'cpp_exec_'));
-    try {
-      const cppFilePath = path.join(tmpDir, 'prog.cpp');
-      await fs.promises.writeFile(cppFilePath, code, 'utf-8');
+    if (hasCmd('g++')) {
+      let tmpDir = null;
+      try {
+        tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'cpp_exec_'));
+        const cppFilePath = path.join(tmpDir, 'prog.cpp');
+        await fs.promises.writeFile(cppFilePath, code, 'utf-8');
 
-      // 1. Compile with g++
-      const compileRes = await runProcess({
-        cmd: 'g++',
-        args: ['-O2', '-std=c++17', '-pipe', 'prog.cpp', '-o', 'prog', '-lm'],
-        cwd: tmpDir,
-        timeoutMs: 5000
-      });
+        const compileRes = await runProcess({
+          cmd: 'g++',
+          args: ['-O2', '-std=c++17', '-pipe', 'prog.cpp', '-o', 'prog', '-lm'],
+          cwd: tmpDir,
+          timeoutMs: 5000
+        });
 
-      if (compileRes.exitCode !== 0) {
+        if (compileRes.exitCode !== 0) {
+          const executionTimeMs = Date.now() - startTime;
+          const errOut = (compileRes.stderr || compileRes.stdout || 'C++ Compilation Error').replace(new RegExp(tmpDir + '/?', 'g'), '');
+          return res.json({
+            output: `Compilation Error:\n${errOut}`,
+            error: 'Compilation Error',
+            executionTimeMs
+          });
+        }
+
+        const runRes = await runProcess({
+          cmd: './prog',
+          args: [],
+          cwd: tmpDir,
+          stdin,
+          timeoutMs
+        });
+
         const executionTimeMs = Date.now() - startTime;
-        const errOut = (compileRes.stderr || compileRes.stdout || 'C++ Compilation Error').replace(new RegExp(tmpDir + '/?', 'g'), '');
+        if (runRes.error && runRes.error === 'Time Limit Exceeded') {
+          return res.json({ output: runRes.output, error: runRes.error, executionTimeMs });
+        }
+        if (runRes.exitCode !== 0 && runRes.stderr) {
+          return res.json({
+            output: (runRes.stdout ? runRes.stdout + '\n' : '') + runRes.stderr,
+            error: runRes.stderr,
+            executionTimeMs
+          });
+        }
         return res.json({
-          output: `Compilation Error:\n${errOut}`,
-          error: 'Compilation Error',
+          output: (runRes.stdout || '').replace(/\r\n/g, '\n'),
+          error: null,
           executionTimeMs
         });
+      } catch (e) {
+        // Continue to Wandbox
+      } finally {
+        if (tmpDir) {
+          try { await fs.promises.rm(tmpDir, { recursive: true, force: true }); } catch (e) {}
+        }
       }
-
-      // 2. Run binary
-      const runRes = await runProcess({
-        cmd: './prog',
-        args: [],
-        cwd: tmpDir,
-        stdin,
-        timeoutMs
-      });
-
-      const executionTimeMs = Date.now() - startTime;
-      if (runRes.error) {
-        return res.json({ output: runRes.output || runRes.error, error: runRes.error, executionTimeMs });
-      }
-      if (runRes.exitCode !== 0 && runRes.stderr) {
-        return res.json({
-          output: (runRes.stdout ? runRes.stdout + '\n' : '') + runRes.stderr,
-          error: runRes.stderr,
-          executionTimeMs
-        });
-      }
-      return res.json({
-        output: (runRes.stdout || '').replace(/\r\n/g, '\n'),
-        error: null,
-        executionTimeMs
-      });
-    } catch (err) {
-      return res.status(500).json({ error: err.message, output: err.message });
-    } finally {
-      try { await fs.promises.rm(tmpDir, { recursive: true, force: true }); } catch (e) {}
     }
+
+    // Run on GCC 13 C++ via Wandbox
+    const wandboxRes = await executeViaWandbox('gcc-13.2.0', code, stdin, timeoutMs);
+    return res.json(wandboxRes);
   } else if (lang === 'javascript' || lang === 'js') {
     try {
       const wrappedJs = `
@@ -1281,3 +1385,5 @@ app.get('*', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Class Test Portal server running on http://0.0.0.0:${PORT}`);
 });
+
+export default app;
