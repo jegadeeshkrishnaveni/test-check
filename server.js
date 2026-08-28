@@ -13,6 +13,32 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '20mb' }));
 
+// CORS & Preflight handling
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Normalize API routes when invoked through serverless rewrites (e.g. /tests -> /api/tests)
+app.use((req, res, next) => {
+  const p = req.path;
+  if (
+    !p.startsWith('/api') && 
+    !p.startsWith('/admin') && 
+    p !== '/' && 
+    !p.includes('.') &&
+    (p.startsWith('/tests') || p.startsWith('/questions') || p.startsWith('/run-code') || p.startsWith('/submit') || p.startsWith('/submissions') || p.startsWith('/github-config') || p.startsWith('/save-questions') || p.startsWith('/github-sync-all'))
+  ) {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
+
 // Determine safe storage directory (use /tmp on read-only environments like Vercel Lambda)
 let BASE_DATA_DIR = path.join(__dirname, 'data');
 try {
