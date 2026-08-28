@@ -1,7 +1,9 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
+import { spawn, exec, execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,138 +13,212 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '20mb' }));
 
-const DATA_DIR = path.join(__dirname, 'data');
-const SUBMISSIONS_FILE = path.join(DATA_DIR, 'submissions.json');
-const GITHUB_CONFIG_FILE = path.join(DATA_DIR, 'github-config.json');
+// Determine safe storage directory (use /tmp on read-only environments like Vercel Lambda)
+let BASE_DATA_DIR = path.join(__dirname, 'data');
+try {
+  if (!fs.existsSync(BASE_DATA_DIR)) {
+    fs.mkdirSync(BASE_DATA_DIR, { recursive: true });
+  }
+} catch (err) {
+  BASE_DATA_DIR = path.join(os.tmpdir(), 'class-test-portal', 'data');
+  try {
+    fs.mkdirSync(BASE_DATA_DIR, { recursive: true });
+  } catch (e) {}
+}
+
+const SUBMISSIONS_FILE = path.join(BASE_DATA_DIR, 'submissions.json');
+const GITHUB_CONFIG_FILE = path.join(BASE_DATA_DIR, 'github-config.json');
 const QUESTIONS_FILE = path.join(__dirname, 'questions.json');
 const TESTS_STORE_FILE = path.join(__dirname, 'tests_store.json');
-const TESTS_DIR = path.join(DATA_DIR, 'tests');
+const TESTS_DIR = path.join(BASE_DATA_DIR, 'tests');
+const STUDENTS_DIR = path.join(BASE_DATA_DIR, 'students');
 
-// Ensure data directories exist
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(STUDENTS_DIR)) fs.mkdirSync(STUDENTS_DIR, { recursive: true });
+  if (!fs.existsSync(TESTS_DIR)) fs.mkdirSync(TESTS_DIR, { recursive: true });
+} catch (e) {}
+
+// Default in-memory state fallback
+const DEFAULT_TEST_DATA = {
+  examTitle: 'Class Test',
+  durationMinutes: 90,
+  studentPassword: 'test-2026',
+  isActive: true,
+  mcq: [
+    {
+      id: 'm1',
+      question: 'Which of the following data structures operates on a First In First Out (FIFO) basis?',
+      options: ['Stack', 'Queue', 'Binary Tree', 'Graph'],
+      answer: 1,
+      marks: 1
+    },
+    {
+      id: 'm2',
+      question: 'What is the worst-case time complexity of standard QuickSort with poor pivot selection?',
+      options: ['O(N log N)', 'O(N)', 'O(N^2)', 'O(1)'],
+      answer: 2,
+      marks: 1
+    }
+  ],
+  programs: [
+    {
+      id: 'p1',
+      title: 'Sum of Array Elements',
+      statement: 'Given an integer N followed by N space-separated integers, compute and print their sum to standard output.',
+      marks: 5,
+      testCases: [
+        { input: '4\n1 2 3 4', expectedOutput: '10', isSample: true },
+        { input: '3\n10 20 30', expectedOutput: '60', isSample: true },
+        { input: '5\n-5 5 -10 10 0', expectedOutput: '0', isSample: false }
+      ]
+    },
+    {
+      id: 'p2',
+      title: 'Find Maximum Element',
+      statement: 'Given an array of integers, output the maximum element found in the array.',
+      marks: 5,
+      testCases: [
+        { input: '5\n3 1 9 4 7', expectedOutput: '9', isSample: true },
+        { input: '3\n-10 -20 -5', expectedOutput: '-5', isSample: false }
+      ]
+    }
+  ],
+  createdAt: new Date().toISOString()
+};
+
+// In-memory runtime cache
+const memoryCache = {
+  questions: DEFAULT_TEST_DATA,
+  testsStore: {
+    activeTestId: 'default',
+    activeTestIds: ['default'],
+    tests: {
+      default: DEFAULT_TEST_DATA
+    }
+  },
+  submissions: {},
+  githubConfig: {
+    owner: process.env.GITHUB_OWNER || 'jegadeeshfairness28',
+    repo: process.env.GITHUB_REPO || 'test-portal',
+    branch: process.env.GITHUB_BRANCH || 'main',
+    token: process.env.GITHUB_TOKEN || ''
+  }
+};
+
+// Safe write helper that writes to disk when possible and always maintains in-memory copy
+async function safeWrite(filePath, content) {
+  try {
+    await fs.promises.writeFile(filePath, content, 'utf-8');
+  } catch (err) {
+    // If target is read-only, attempt writing to /tmp
+    try {
+      const fallbackPath = path.join(os.tmpdir(), path.basename(filePath));
+      await fs.promises.writeFile(fallbackPath, content, 'utf-8');
+    } catch (e) {}
+  }
 }
-const STUDENTS_DIR = path.join(DATA_DIR, 'students');
-if (!fs.existsSync(STUDENTS_DIR)) {
-  fs.mkdirSync(STUDENTS_DIR, { recursive: true });
-}
-if (!fs.existsSync(TESTS_DIR)) {
-  fs.mkdirSync(TESTS_DIR, { recursive: true });
+
+// Safe read helper
+async function safeRead(filePath, fallbackData) {
+  try {
+    if (fs.existsSync(filePath)) {
+      const content = await fs.promises.readFile(filePath, 'utf-8');
+      return JSON.parse(content);
+    }
+    const fallbackPath = path.join(os.tmpdir(), path.basename(filePath));
+    if (fs.existsSync(fallbackPath)) {
+      const content = await fs.promises.readFile(fallbackPath, 'utf-8');
+      return JSON.parse(content);
+    }
+  } catch (e) {}
+  return fallbackData;
 }
 
 // Helpers for persistent multi-test store
 async function getTestsStore() {
   try {
-    if (fs.existsSync(TESTS_STORE_FILE)) {
-      const content = await fs.promises.readFile(TESTS_STORE_FILE, 'utf-8');
-      return JSON.parse(content || '{}');
+    const data = await safeRead(TESTS_STORE_FILE, null);
+    if (data && data.tests && Object.keys(data.tests).length > 0) {
+      memoryCache.testsStore = data;
+      return data;
     }
-  } catch (err) {
-    console.error('Error reading tests_store.json:', err);
-  }
-  return { activeTestId: 'default', tests: {} };
+  } catch (err) {}
+  return memoryCache.testsStore;
 }
 
 async function saveTestsStore(store) {
-  try {
-    await fs.promises.writeFile(TESTS_STORE_FILE, JSON.stringify(store, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Error saving tests_store.json:', err);
-  }
+  memoryCache.testsStore = store;
+  await safeWrite(TESTS_STORE_FILE, JSON.stringify(store, null, 2));
 }
 
-// Initial bootstrap and sync between tests_store.json, tests directory, and questions.json
+// Initial bootstrap and sync
 async function ensureDefaultTestExists() {
   try {
     const store = await getTestsStore();
     if (!store.tests) store.tests = {};
 
-    // 1. If questions.json exists, ensure default is in store
+    if (!store.tests['default']) {
+      store.tests['default'] = DEFAULT_TEST_DATA;
+    }
+    if (!store.activeTestId) store.activeTestId = 'default';
+    if (!Array.isArray(store.activeTestIds) || store.activeTestIds.length === 0) {
+      store.activeTestIds = ['default'];
+    }
+
+    // Try reading bundled questions.json if present
     if (fs.existsSync(QUESTIONS_FILE)) {
       try {
         const qContent = await fs.promises.readFile(QUESTIONS_FILE, 'utf-8');
         const qData = JSON.parse(qContent);
-        if (!store.tests['default']) {
+        if (qData && (qData.mcq || qData.programs)) {
           store.tests['default'] = qData;
+          memoryCache.questions = qData;
         }
       } catch (e) {}
     }
 
-    // 2. Ensure all tests in store exist in TESTS_DIR
-    for (const [id, testObj] of Object.entries(store.tests)) {
-      const testFilePath = path.join(TESTS_DIR, `${id}.json`);
-      if (!fs.existsSync(testFilePath)) {
-        await fs.promises.writeFile(testFilePath, JSON.stringify(testObj, null, 2), 'utf-8');
-      }
-    }
-
-    // 3. Ensure all test files in TESTS_DIR exist in store
-    if (fs.existsSync(TESTS_DIR)) {
-      const files = await fs.promises.readdir(TESTS_DIR);
-      for (const f of files) {
-        if (f.endsWith('.json')) {
-          const id = f.replace('.json', '');
-          if (!store.tests[id]) {
-            try {
-              const content = await fs.promises.readFile(path.join(TESTS_DIR, f), 'utf-8');
-              store.tests[id] = JSON.parse(content);
-            } catch (e) {}
-          }
-        }
-      }
-    }
-
-    // 4. Save synced store
     await saveTestsStore(store);
-
-    // 5. Ensure active test in questions.json is valid
-    const defaultTestPath = path.join(TESTS_DIR, 'default.json');
-    if (!fs.existsSync(defaultTestPath) && store.tests['default']) {
-      await fs.promises.writeFile(defaultTestPath, JSON.stringify(store.tests['default'], null, 2), 'utf-8');
-    }
   } catch (e) {
-    console.error('Error bootstrapping multi-test storage:', e);
+    console.warn('Bootstrap sync warning:', e.message);
   }
 }
-ensureDefaultTestExists();
+ensureDefaultTestExists().catch(() => {});
 
-// Helpers for data read/write
+// Submissions helpers
 async function getSubmissions() {
   try {
-    if (fs.existsSync(SUBMISSIONS_FILE)) {
-      const content = await fs.promises.readFile(SUBMISSIONS_FILE, 'utf-8');
-      return JSON.parse(content || '{}');
+    const data = await safeRead(SUBMISSIONS_FILE, null);
+    if (data) {
+      memoryCache.submissions = data;
+      return data;
     }
-  } catch (err) {
-    console.error('Error reading submissions:', err);
-  }
-  return {};
+  } catch (err) {}
+  return memoryCache.submissions;
 }
 
 async function saveSubmissions(subs) {
-  await fs.promises.writeFile(SUBMISSIONS_FILE, JSON.stringify(subs, null, 2), 'utf-8');
+  memoryCache.submissions = subs;
+  await safeWrite(SUBMISSIONS_FILE, JSON.stringify(subs, null, 2));
 }
 
 async function getGithubConfig() {
-  let fileCfg = {};
   try {
-    if (fs.existsSync(GITHUB_CONFIG_FILE)) {
-      const content = await fs.promises.readFile(GITHUB_CONFIG_FILE, 'utf-8');
-      fileCfg = JSON.parse(content || '{}');
+    const data = await safeRead(GITHUB_CONFIG_FILE, null);
+    if (data) {
+      memoryCache.githubConfig = { ...memoryCache.githubConfig, ...data };
     }
-  } catch (err) {
-    console.error('Error reading github config:', err);
-  }
+  } catch (e) {}
   return {
-    owner: process.env.GITHUB_OWNER || fileCfg.owner || 'jegadeeshfairness28',
-    repo: process.env.GITHUB_REPO || fileCfg.repo || 'test-portal',
-    branch: process.env.GITHUB_BRANCH || fileCfg.branch || 'main',
-    token: process.env.GITHUB_TOKEN || fileCfg.token || ''
+    owner: process.env.GITHUB_OWNER || memoryCache.githubConfig.owner,
+    repo: process.env.GITHUB_REPO || memoryCache.githubConfig.repo,
+    branch: process.env.GITHUB_BRANCH || memoryCache.githubConfig.branch,
+    token: process.env.GITHUB_TOKEN || memoryCache.githubConfig.token
   };
 }
 
 async function saveGithubConfig(cfg) {
-  await fs.promises.writeFile(GITHUB_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf-8');
+  memoryCache.githubConfig = { ...memoryCache.githubConfig, ...cfg };
+  await safeWrite(GITHUB_CONFIG_FILE, JSON.stringify(cfg, null, 2));
 }
 
 // Helper to push a file to GitHub via REST API
@@ -248,9 +324,6 @@ async function autoSyncToGitHub(reason = 'Portal update') {
 }
 
 // ======================== API ROUTES ========================
-
-import { spawn, exec, execSync } from 'child_process';
-import os from 'os';
 
 // Check if a system binary is installed locally
 const localBinaryCache = new Map();
@@ -644,25 +717,33 @@ app.post('/api/run-code', async (req, res) => {
 app.get('/api/questions', async (req, res) => {
   try {
     const { testId } = req.query;
+    const store = await getTestsStore();
     if (testId) {
-      const specificPath = path.join(TESTS_DIR, `${testId}.json`);
-      if (fs.existsSync(specificPath)) {
-        const data = await fs.promises.readFile(specificPath, 'utf-8');
-        res.setHeader('Content-Type', 'application/json');
-        return res.send(data);
-      }
-      const store = await getTestsStore();
       if (store.tests && store.tests[testId]) {
         res.setHeader('Content-Type', 'application/json');
         return res.json(store.tests[testId]);
       }
+      const specificPath = path.join(TESTS_DIR, `${testId}.json`);
+      const fileData = await safeRead(specificPath, null);
+      if (fileData) {
+        res.setHeader('Content-Type', 'application/json');
+        return res.json(fileData);
+      }
     }
-    const data = await fs.promises.readFile(QUESTIONS_FILE, 'utf-8');
+    
+    // Check active test in store
+    const activeId = store.activeTestId || 'default';
+    if (store.tests && store.tests[activeId]) {
+      res.setHeader('Content-Type', 'application/json');
+      return res.json(store.tests[activeId]);
+    }
+    
+    const fileData = await safeRead(QUESTIONS_FILE, memoryCache.questions || DEFAULT_TEST_DATA);
     res.setHeader('Content-Type', 'application/json');
-    res.send(data);
+    res.json(fileData);
   } catch (err) {
     console.error('Failed to read questions:', err);
-    res.status(500).json({ error: 'Failed to read questions' });
+    res.json(memoryCache.questions || DEFAULT_TEST_DATA);
   }
 });
 
@@ -672,14 +753,19 @@ app.get('/api/tests', async (req, res) => {
     const isStudent = req.query.role === 'student' || req.query.activeOnly === 'true';
     const store = await getTestsStore();
     if (!store.tests) store.tests = {};
+    if (!store.tests['default']) store.tests['default'] = DEFAULT_TEST_DATA;
     if (!Array.isArray(store.activeTestIds)) {
       store.activeTestIds = store.activeTestId ? [store.activeTestId] : ['default'];
     }
 
-    const files = await fs.promises.readdir(TESTS_DIR);
-    let tests = [];
+    let files = [];
+    try {
+      if (fs.existsSync(TESTS_DIR)) {
+        files = await fs.promises.readdir(TESTS_DIR);
+      }
+    } catch (e) {}
     
-    // Merge from filesystem & store
+    let tests = [];
     const seenIds = new Set();
 
     for (const f of files) {
@@ -687,93 +773,73 @@ app.get('/api/tests', async (req, res) => {
         const id = f.replace('.json', '');
         seenIds.add(id);
         try {
-          const content = await fs.promises.readFile(path.join(TESTS_DIR, f), 'utf-8');
-          const parsed = JSON.parse(content);
-          
-          // Also sync to store if missing
-          if (!store.tests[id]) {
-            store.tests[id] = parsed;
+          const parsed = await safeRead(path.join(TESTS_DIR, f), null);
+          if (parsed) {
+            if (!store.tests[id]) store.tests[id] = parsed;
+            let isAct = (parsed.isActive !== undefined) ? !!parsed.isActive : (store.activeTestIds.includes(id) || id === store.activeTestId || id === 'default');
+            parsed.isActive = isAct;
+            const mcqTotalMarks = (parsed.mcq || []).reduce((acc, q) => acc + (q.marks || 1), 0);
+            const progTotalMarks = (parsed.programs || []).reduce((acc, p) => acc + (p.marks || 5), 0);
+            tests.push({
+              id,
+              title: parsed.examTitle || id,
+              durationMinutes: parsed.durationMinutes || 60,
+              studentPassword: parsed.studentPassword || 'test-2026',
+              mcqCount: (parsed.mcq || []).length,
+              programCount: (parsed.programs || []).length,
+              totalMarks: mcqTotalMarks + progTotalMarks,
+              updatedAt: parsed.updatedAt || parsed.createdAt || null,
+              isActive: isAct
+            });
           }
-
-          // Active flag: check explicit parsed.isActive, or if it is present in store.activeTestIds
-          let isAct;
-          if (parsed.isActive !== undefined) {
-            isAct = !!parsed.isActive;
-          } else if (store.activeTestIds.includes(id) || id === store.activeTestId || id === 'default') {
-            isAct = true;
-          } else {
-            isAct = false;
-          }
-          parsed.isActive = isAct;
-
-          const mcqTotalMarks = (parsed.mcq || []).reduce((acc, q) => acc + (q.marks || 1), 0);
-          const progTotalMarks = (parsed.programs || []).reduce((acc, p) => acc + (p.marks || 5), 0);
-          const totalMarks = mcqTotalMarks + progTotalMarks;
-
-          tests.push({
-            id,
-            title: parsed.examTitle || id,
-            durationMinutes: parsed.durationMinutes || 60,
-            studentPassword: parsed.studentPassword || 'test-2026',
-            mcqCount: (parsed.mcq || []).length,
-            programCount: (parsed.programs || []).length,
-            totalMarks,
-            updatedAt: parsed.updatedAt || parsed.createdAt || null,
-            isActive: isAct
-          });
         } catch (e) {}
       }
     }
 
-    // Also include any tests in store that might not be on disk yet
+    // Include tests from store not yet in files list
     for (const [id, parsed] of Object.entries(store.tests)) {
       if (!seenIds.has(id) && parsed) {
-        try {
-          let isAct;
-          if (parsed.isActive !== undefined) {
-            isAct = !!parsed.isActive;
-          } else if (store.activeTestIds.includes(id) || id === store.activeTestId || id === 'default') {
-            isAct = true;
-          } else {
-            isAct = false;
-          }
-          parsed.isActive = isAct;
-
-          await fs.promises.writeFile(path.join(TESTS_DIR, `${id}.json`), JSON.stringify(parsed, null, 2), 'utf-8');
-          const mcqTotalMarks = (parsed.mcq || []).reduce((acc, q) => acc + (q.marks || 1), 0);
-          const progTotalMarks = (parsed.programs || []).reduce((acc, p) => acc + (p.marks || 5), 0);
-          const totalMarks = mcqTotalMarks + progTotalMarks;
-
-          tests.push({
-            id,
-            title: parsed.examTitle || id,
-            durationMinutes: parsed.durationMinutes || 60,
-            studentPassword: parsed.studentPassword || 'test-2026',
-            mcqCount: (parsed.mcq || []).length,
-            programCount: (parsed.programs || []).length,
-            totalMarks,
-            updatedAt: parsed.updatedAt || parsed.createdAt || null,
-            isActive: isAct
-          });
-        } catch (e) {}
+        seenIds.add(id);
+        let isAct = (parsed.isActive !== undefined) ? !!parsed.isActive : (store.activeTestIds.includes(id) || id === store.activeTestId || id === 'default');
+        parsed.isActive = isAct;
+        const mcqTotalMarks = (parsed.mcq || []).reduce((acc, q) => acc + (q.marks || 1), 0);
+        const progTotalMarks = (parsed.programs || []).reduce((acc, p) => acc + (p.marks || 5), 0);
+        tests.push({
+          id,
+          title: parsed.examTitle || id,
+          durationMinutes: parsed.durationMinutes || 60,
+          studentPassword: parsed.studentPassword || 'test-2026',
+          mcqCount: (parsed.mcq || []).length,
+          programCount: (parsed.programs || []).length,
+          totalMarks: mcqTotalMarks + progTotalMarks,
+          updatedAt: parsed.updatedAt || parsed.createdAt || null,
+          isActive: isAct
+        });
       }
     }
 
-    // Synchronize store.activeTestIds
+    if (tests.length === 0) {
+      tests.push({
+        id: 'default',
+        title: DEFAULT_TEST_DATA.examTitle,
+        durationMinutes: DEFAULT_TEST_DATA.durationMinutes,
+        studentPassword: DEFAULT_TEST_DATA.studentPassword,
+        mcqCount: DEFAULT_TEST_DATA.mcq.length,
+        programCount: DEFAULT_TEST_DATA.programs.length,
+        totalMarks: 12,
+        updatedAt: null,
+        isActive: true
+      });
+    }
+
     store.activeTestIds = tests.filter(t => t.isActive).map(t => t.id);
     if (!store.activeTestId || !store.activeTestIds.includes(store.activeTestId)) {
-      store.activeTestId = store.activeTestIds[0] || (tests[0] ? tests[0].id : 'default');
+      store.activeTestId = store.activeTestIds[0] || 'default';
     }
-    await saveTestsStore(store);
 
-    const totalCount = tests.length;
-    const activeCount = tests.filter(t => t.isActive).length;
-
-    // IF STUDENT: return ONLY active tests!
     if (isStudent) {
       tests = tests.filter(t => t.isActive);
     } else {
-      // Sort active tests first, then by title
       tests.sort((a, b) => {
         if (a.isActive && !b.isActive) return -1;
         if (!a.isActive && b.isActive) return 1;
@@ -783,8 +849,8 @@ app.get('/api/tests', async (req, res) => {
 
     res.json({
       tests,
-      totalCount,
-      activeCount,
+      totalCount: tests.length,
+      activeCount: tests.filter(t => t.isActive).length,
       activeTestId: store.activeTestId,
       activeTestIds: store.activeTestIds
     });
@@ -806,10 +872,8 @@ app.post('/api/tests/toggle-active', async (req, res) => {
 
     const targetFile = path.join(TESTS_DIR, `${id}.json`);
     let testObj = store.tests[id];
-    if (fs.existsSync(targetFile)) {
-      const content = await fs.promises.readFile(targetFile, 'utf-8');
-      testObj = JSON.parse(content);
-    }
+    const onDisk = await safeRead(targetFile, null);
+    if (onDisk) testObj = onDisk;
 
     if (!testObj) {
       return res.status(404).json({ error: 'Test not found' });
@@ -818,8 +882,8 @@ app.post('/api/tests/toggle-active', async (req, res) => {
     testObj.isActive = shouldBeActive;
     testObj.updatedAt = new Date().toISOString();
 
-    // Persist to disk
-    await fs.promises.writeFile(targetFile, JSON.stringify(testObj, null, 2), 'utf-8');
+    // Persist
+    await safeWrite(targetFile, JSON.stringify(testObj, null, 2));
     store.tests[id] = testObj;
 
     if (shouldBeActive) {
@@ -827,8 +891,7 @@ app.post('/api/tests/toggle-active', async (req, res) => {
         store.activeTestIds.push(id);
       }
       store.activeTestId = id;
-      // Also update questions.json
-      await fs.promises.writeFile(QUESTIONS_FILE, JSON.stringify(testObj, null, 2), 'utf-8');
+      await safeWrite(QUESTIONS_FILE, JSON.stringify(testObj, null, 2));
     } else {
       store.activeTestIds = store.activeTestIds.filter(tId => tId !== id);
       if (store.activeTestId === id) {
@@ -860,30 +923,18 @@ app.post('/api/tests/switch', async (req, res) => {
     const { id } = req.body;
     if (!id) return res.status(400).json({ error: 'Test ID required' });
     const targetFile = path.join(TESTS_DIR, `${id}.json`);
-    let testContent;
-    let testObj;
-    if (fs.existsSync(targetFile)) {
-      testContent = await fs.promises.readFile(targetFile, 'utf-8');
-      testObj = JSON.parse(testContent);
-    } else {
-      const store = await getTestsStore();
-      if (store.tests && store.tests[id]) {
-        testObj = store.tests[id];
-        testContent = JSON.stringify(testObj, null, 2);
-        await fs.promises.writeFile(targetFile, testContent, 'utf-8');
-      } else {
-        return res.status(404).json({ error: 'Test not found' });
-      }
+    const store = await getTestsStore();
+    let testObj = (store.tests && store.tests[id]) || (await safeRead(targetFile, null));
+
+    if (!testObj) {
+      return res.status(404).json({ error: 'Test not found' });
     }
 
-    // Set this test as active
     testObj.isActive = true;
     const updatedStr = JSON.stringify(testObj, null, 2);
-    await fs.promises.writeFile(targetFile, updatedStr, 'utf-8');
-    await fs.promises.writeFile(QUESTIONS_FILE, updatedStr, 'utf-8');
+    await safeWrite(targetFile, updatedStr);
+    await safeWrite(QUESTIONS_FILE, updatedStr);
     
-    // Update active test ID in store
-    const store = await getTestsStore();
     if (!store.tests) store.tests = {};
     store.tests[id] = testObj;
     if (!Array.isArray(store.activeTestIds)) store.activeTestIds = [];
@@ -891,7 +942,6 @@ app.post('/api/tests/switch', async (req, res) => {
     store.activeTestId = id;
     await saveTestsStore(store);
 
-    // Auto-sync in background
     autoSyncToGitHub(`Activated and switched test to ${id}`).catch(() => {});
 
     res.json({ success: true, message: `Activated and loaded "${testObj.examTitle || id}"`, data: testObj });
@@ -920,7 +970,6 @@ app.post('/api/tests/create', async (req, res) => {
         createdAt: new Date().toISOString()
       };
     } else {
-      // Starter template with sample MCQ and coding problem
       newTestData = {
         examTitle: testTitle,
         durationMinutes: parseInt(durationMinutes, 10) || 60,
@@ -954,19 +1003,15 @@ app.post('/api/tests/create', async (req, res) => {
 
     const testFile = path.join(TESTS_DIR, `${testId}.json`);
     const jsonStr = JSON.stringify(newTestData, null, 2);
-    await fs.promises.writeFile(testFile, jsonStr, 'utf-8');
+    await safeWrite(testFile, jsonStr);
+    await safeWrite(QUESTIONS_FILE, jsonStr);
 
-    // Also activate it immediately
-    await fs.promises.writeFile(QUESTIONS_FILE, jsonStr, 'utf-8');
-
-    // Persist to store
     const store = await getTestsStore();
     if (!store.tests) store.tests = {};
     store.tests[testId] = newTestData;
     store.activeTestId = testId;
     await saveTestsStore(store);
 
-    // Auto-sync in background
     autoSyncToGitHub(`Created test "${testTitle}"`).catch(() => {});
 
     res.json({ success: true, testId, testData: newTestData, message: `Created and activated "${testTitle}"` });
@@ -980,35 +1025,26 @@ app.post('/api/tests/duplicate', async (req, res) => {
   try {
     const { id } = req.body;
     if (!id) return res.status(400).json({ error: 'Source Test ID required' });
+    const store = await getTestsStore();
     const sourcePath = path.join(TESTS_DIR, `${id}.json`);
-    let parsed;
-    if (fs.existsSync(sourcePath)) {
-      const content = await fs.promises.readFile(sourcePath, 'utf-8');
-      parsed = JSON.parse(content);
-    } else {
-      const store = await getTestsStore();
-      if (store.tests && store.tests[id]) {
-        parsed = JSON.parse(JSON.stringify(store.tests[id]));
-      } else {
-        return res.status(404).json({ error: 'Source test not found' });
-      }
+    let parsed = (store.tests && store.tests[id]) || (await safeRead(sourcePath, null));
+
+    if (!parsed) {
+      return res.status(404).json({ error: 'Source test not found' });
     }
 
+    parsed = JSON.parse(JSON.stringify(parsed));
     parsed.examTitle = `${parsed.examTitle || 'Test'} (Copy)`;
     parsed.createdAt = new Date().toISOString();
     parsed.updatedAt = new Date().toISOString();
 
     const newId = 'test_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
     const newPath = path.join(TESTS_DIR, `${newId}.json`);
-    await fs.promises.writeFile(newPath, JSON.stringify(parsed, null, 2), 'utf-8');
+    await safeWrite(newPath, JSON.stringify(parsed, null, 2));
 
-    // Persist to store
-    const store = await getTestsStore();
-    if (!store.tests) store.tests = {};
     store.tests[newId] = parsed;
     await saveTestsStore(store);
 
-    // Auto-sync in background
     autoSyncToGitHub(`Duplicated test "${parsed.examTitle}"`).catch(() => {});
 
     res.json({ success: true, newId, title: parsed.examTitle, message: `Duplicated as "${parsed.examTitle}"` });
@@ -1017,7 +1053,7 @@ app.post('/api/tests/duplicate', async (req, res) => {
   }
 });
 
-// 1f. Delete a test (with safe active-test fallback)
+// 1f. Delete a test
 app.delete('/api/tests/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1025,49 +1061,33 @@ app.delete('/api/tests/:id', async (req, res) => {
     const store = await getTestsStore();
     if (!store.tests) store.tests = {};
 
-    const existsOnDisk = fs.existsSync(testFile);
-    const existsInStore = !!store.tests[id];
-
-    if (!existsOnDisk && !existsInStore) {
-      return res.status(404).json({ error: 'Test not found' });
-    }
-
-    if (existsOnDisk) {
-      await fs.promises.unlink(testFile);
-    }
+    try {
+      if (fs.existsSync(testFile)) await fs.promises.unlink(testFile);
+    } catch (e) {}
     delete store.tests[id];
 
-    // Remove from activeTestIds
     if (Array.isArray(store.activeTestIds)) {
       store.activeTestIds = store.activeTestIds.filter(tId => tId !== id);
     }
 
-    // Find remaining tests
     const remainingIds = Object.keys(store.tests);
     let newActiveId = null;
     let newActiveTitle = null;
 
-    // Check if the deleted test was active
     if (store.activeTestId === id || remainingIds.length > 0) {
       newActiveId = store.activeTestIds[0] || remainingIds[0] || 'default';
       store.activeTestId = newActiveId;
       
-      // Load the new active test into questions.json
       const nextTestObj = store.tests[newActiveId];
       if (nextTestObj) {
         newActiveTitle = nextTestObj.examTitle || 'Class Test';
         const nextContent = JSON.stringify(nextTestObj, null, 2);
-        await fs.promises.writeFile(QUESTIONS_FILE, nextContent, 'utf-8');
-        const nextFilePath = path.join(TESTS_DIR, `${newActiveId}.json`);
-        if (!fs.existsSync(nextFilePath)) {
-          await fs.promises.writeFile(nextFilePath, nextContent, 'utf-8');
-        }
+        await safeWrite(QUESTIONS_FILE, nextContent);
+        await safeWrite(path.join(TESTS_DIR, `${newActiveId}.json`), nextContent);
       }
     }
 
     await saveTestsStore(store);
-
-    // Auto-sync in background
     autoSyncToGitHub(`Deleted test ${id}`).catch(() => {});
 
     res.json({
@@ -1082,7 +1102,7 @@ app.delete('/api/tests/:id', async (req, res) => {
   }
 });
 
-// 1g. Bulk restore or import tests from client / backup
+// 1g. Bulk restore or import tests
 app.post('/api/tests/restore', async (req, res) => {
   try {
     const { tests } = req.body;
@@ -1107,8 +1127,7 @@ app.post('/api/tests/restore', async (req, res) => {
           updatedAt: data.updatedAt || new Date().toISOString()
         };
         store.tests[id] = cleanData;
-        const testFilePath = path.join(TESTS_DIR, `${id}.json`);
-        await fs.promises.writeFile(testFilePath, JSON.stringify(cleanData, null, 2), 'utf-8');
+        await safeWrite(path.join(TESTS_DIR, `${id}.json`), JSON.stringify(cleanData, null, 2));
         restoredCount++;
       }
     }
@@ -1142,21 +1161,17 @@ app.post('/api/save-questions', async (req, res) => {
     }
     questionsData.updatedAt = new Date().toISOString();
     const jsonStr = JSON.stringify(questionsData, null, 2);
-    await fs.promises.writeFile(QUESTIONS_FILE, jsonStr, 'utf-8');
+    await safeWrite(QUESTIONS_FILE, jsonStr);
 
-    // Also update in tests directory
     const testId = req.body.testId || 'default';
-    const testFilePath = path.join(TESTS_DIR, `${testId}.json`);
-    await fs.promises.writeFile(testFilePath, jsonStr, 'utf-8');
+    await safeWrite(path.join(TESTS_DIR, `${testId}.json`), jsonStr);
 
-    // Also persist to store
     const store = await getTestsStore();
     if (!store.tests) store.tests = {};
     store.tests[testId] = questionsData;
     store.activeTestId = testId;
     await saveTestsStore(store);
 
-    // Auto-sync to GitHub in background
     autoSyncToGitHub(`Updated questions for ${questionsData.examTitle || testId}`).catch(() => {});
 
     res.json({
@@ -1164,7 +1179,7 @@ app.post('/api/save-questions', async (req, res) => {
       message: 'Questions updated and saved successfully'
     });
   } catch (err) {
-    console.error('Error saving questions.json:', err);
+    console.error('Error saving questions:', err);
     res.status(500).json({ error: 'Failed to write questions file' });
   }
 });
@@ -1207,8 +1222,7 @@ app.post('/api/submit', async (req, res) => {
     await saveSubmissions(subs);
 
     // Save individual student json
-    const studentFilePath = path.join(STUDENTS_DIR, `${rollKey}.json`);
-    await fs.promises.writeFile(studentFilePath, JSON.stringify(updated, null, 2), 'utf-8');
+    await safeWrite(path.join(STUDENTS_DIR, `${rollKey}.json`), JSON.stringify(updated, null, 2));
 
     // If submitted and GitHub configured, push to GitHub
     let ghResult = null;
@@ -1267,7 +1281,6 @@ app.get('/api/submissions/:roll', async (req, res) => {
 app.get('/api/github-config', async (req, res) => {
   try {
     const cfg = await getGithubConfig();
-    // Mask token for security
     const masked = {
       ...cfg,
       hasToken: !!cfg.token,
@@ -1311,7 +1324,6 @@ app.post('/api/github-sync-all', async (req, res) => {
     const subs = await getSubmissions();
     const subsCount = Object.keys(subs).length;
 
-    // 1. Push combined submissions.json
     const pushSubmissions = await pushFileToGitHub(
       ghCfg.owner,
       ghCfg.repo,
@@ -1322,19 +1334,17 @@ app.post('/api/github-sync-all', async (req, res) => {
       ghCfg.token
     );
 
-    // 2. Push questions.json
-    const questionsData = await fs.promises.readFile(QUESTIONS_FILE, 'utf-8');
+    const questionsData = await safeRead(QUESTIONS_FILE, memoryCache.questions || DEFAULT_TEST_DATA);
     const pushQuestions = await pushFileToGitHub(
       ghCfg.owner,
       ghCfg.repo,
       ghCfg.branch || 'main',
       'questions.json',
-      questionsData,
+      JSON.stringify(questionsData, null, 2),
       `Sync questions.json to GitHub [${new Date().toISOString()}]`,
       ghCfg.token
     );
 
-    // 3. Push CSV report
     const headers = ['Roll Number', 'Student Name', 'MCQ Score', 'Coding Score', 'Total Score', 'Status', 'Submitted At'];
     const csvRows = [headers.join(',')];
     Object.values(subs).forEach(r => {
@@ -1382,8 +1392,11 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Class Test Portal server running on http://0.0.0.0:${PORT}`);
-});
+// Start server only when running as standalone Node process (not serverless)
+if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME && process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Class Test Portal server running on http://0.0.0.0:${PORT}`);
+  });
+}
 
 export default app;
