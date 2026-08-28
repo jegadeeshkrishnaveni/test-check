@@ -1379,21 +1379,52 @@ app.post('/api/github-sync-all', async (req, res) => {
   }
 });
 
-// Serve static files from root directory
-app.use(express.static(__dirname));
+// Route for root & index
+app.get('/', (req, res) => {
+  const indexPath = path.join(__dirname, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  res.send('Class Test Portal');
+});
 
 // Route for admin page
 app.get('/admin', (req, res) => {
-  res.sendFile(path.join(__dirname, 'admin.html'));
+  const adminPath = path.join(__dirname, 'admin.html');
+  if (fs.existsSync(adminPath)) {
+    return res.sendFile(adminPath);
+  }
+  res.status(404).send('Admin page not found');
 });
 
-// Fallback to index.html
+// Serve static files from root directory
+app.use(express.static(__dirname));
+
+// Fallback to index.html for SPA routes
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  const indexPath = path.join(__dirname, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  res.status(404).send('Not found');
 });
 
-// Start server only when running as standalone Node process (not serverless)
-if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME && process.env.NODE_ENV !== 'test') {
+// Global error handling middleware to avoid unhandled exception crashes
+app.use((err, req, res, next) => {
+  console.error('Express Unhandled Error:', err);
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Internal Server Error', message: err.message });
+  }
+});
+
+// Check if server.js is run directly (e.g. `node server.js`)
+const isDirectEntry = process.argv[1] && (
+  process.argv[1].endsWith('server.js') || 
+  process.argv[1].endsWith('server.ts')
+);
+
+// Start server only when running as standalone Node process (not serverless and not imported)
+if (isDirectEntry && !process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME && process.env.NODE_ENV !== 'test') {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Class Test Portal server running on http://0.0.0.0:${PORT}`);
   });
