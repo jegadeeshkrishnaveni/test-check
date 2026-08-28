@@ -505,17 +505,17 @@
 
     <div id="studentInputFields">
       <label>Roll Number (Unique ID)</label>
-      <input type="text" id="inputRoll" placeholder="e.g. 21CS101" autocomplete="off">
+      <input type="text" id="inputRoll" placeholder="e.g. 21CS101" autocomplete="off" style="font-size: 1rem; padding: 12px;">
 
       <label>Student Full Name</label>
-      <input type="text" id="inputName" placeholder="e.g. John Doe" autocomplete="name">
+      <input type="text" id="inputName" placeholder="e.g. John Doe" autocomplete="name" style="font-size: 1rem; padding: 12px;">
 
       <label>Test Password</label>
-      <input type="password" id="inputPass" placeholder="Enter password provided by teacher">
+      <input type="password" id="inputPass" placeholder="Enter password provided by teacher" style="font-size: 1rem; padding: 12px;">
 
-      <div id="loginErr" style="color:var(--warn);font-size:0.85rem;margin-top:10px;font-weight:500;"></div>
+      <div id="loginErr" style="color:#dc2626; font-size:0.9rem; margin-top:12px; font-weight:600; padding: 10px; background: #fee2e2; border-radius: 6px; border-left: 4px solid #dc2626; display: none; min-height: 20px;"></div>
 
-      <button class="btn-primary" id="startTestBtn" style="width:100%;margin-top:18px;padding:12px;">
+      <button class="btn-primary" id="startTestBtn" style="width:100%;margin-top:18px;padding:12px; cursor: pointer;">
         Start Test ➔
       </button>
     </div>
@@ -790,34 +790,57 @@ document.getElementById('startTestBtn').addEventListener('click', async () => {
   const name = document.getElementById('inputName').value.trim();
   const pass = document.getElementById('inputPass').value.trim();
   const errEl = document.getElementById('loginErr');
+  const btn = document.getElementById('startTestBtn');
+
+  // Clear previous errors
+  errEl.textContent = '';
+  errEl.style.display = 'none';
 
   if (!roll || !name) {
-    errEl.textContent = 'Please enter both your Roll Number and Full Name.';
+    errEl.textContent = '❌ Please enter both your Roll Number and Full Name.';
+    errEl.style.display = 'block';
+    console.warn('❌ Login failed: Missing roll number or name');
     return;
   }
 
-  if (!QUESTIONS) {
-    await initPortal(currentSelectedTestId);
-  }
-
-  const expectedPass = QUESTIONS?.studentPassword || 'test-2026';
-  if (pass !== expectedPass) {
-    errEl.textContent = `Incorrect test password for "${QUESTIONS?.examTitle || 'Exam'}". Please ask your teacher.`;
+  if (!pass) {
+    errEl.textContent = '❌ Please enter the Test Password.';
+    errEl.style.display = 'block';
+    console.warn('❌ Login failed: Missing test password');
     return;
   }
 
-  currentStudent = { roll, name };
-  document.getElementById('loginScreen').classList.add('hidden');
-  document.getElementById('testScreen').classList.remove('hidden');
+  // Show loading state
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
 
-  // Check if student already has a saved submission to resume
   try {
-    const subRes = await fetch(`/api/submissions/${encodeURIComponent(roll)}`);
-    if (subRes.ok) {
-      const existing = await subRes.json();
-      if (existing.status === 'submitted' && (!existing.testId || existing.testId === currentSelectedTestId)) {
-        showFinalResult(existing);
-        return;
+    if (!QUESTIONS) {
+      await initPortal(currentSelectedTestId);
+    }
+
+    const expectedPass = QUESTIONS?.studentPassword || 'password';
+    if (pass !== expectedPass) {
+      errEl.textContent = `❌ Incorrect test password for "${QUESTIONS?.examTitle || 'Exam'}". Please ask your teacher. (Expected password: ${expectedPass})`;
+      errEl.style.display = 'block';
+      console.warn(`❌ Login failed: Wrong password. Expected: ${expectedPass}, Got: ${pass}`);
+      document.getElementById('inputPass').value = '';
+      return;
+    }
+
+    console.log(`✅ Login successful for ${name} (${roll})`);
+    currentStudent = { roll, name };
+    document.getElementById('loginScreen').classList.add('hidden');
+    document.getElementById('testScreen').classList.remove('hidden');
+
+    // Check if student already has a saved submission to resume
+    try {
+      const subRes = await fetch(`/api/submissions/${encodeURIComponent(roll)}`);
+      if (subRes.ok) {
+        const existing = await subRes.json();
+        if (existing.status === 'submitted' && (!existing.testId || existing.testId === currentSelectedTestId)) {
+          showFinalResult(existing);
+          return;
       }
       if (existing.mcqAnswers) mcqAnswers = existing.mcqAnswers;
       if (existing.programAnswers) programAnswers = existing.programAnswers;

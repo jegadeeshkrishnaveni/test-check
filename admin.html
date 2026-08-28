@@ -372,11 +372,12 @@
     <p style="color:#64748b;font-size:0.85rem;margin:0 0 20px;">Access live student submissions, view submitted code, and manage questions.</p>
     
     <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Admin Password</label>
-    <input type="password" id="adminPass" placeholder="Enter admin password">
-    <button class="btn-primary" id="adminLoginBtn" style="width:100%;margin-top:16px;">
+    <input type="password" id="adminPass" placeholder="Enter admin password" style="border: 2px solid #e2e8f0; font-size: 1rem; padding: 12px;">
+    <button class="btn-primary" id="adminLoginBtn" style="width:100%;margin-top:16px; cursor: pointer;">
       Log In to Admin
     </button>
-    <div id="loginErr" style="color:var(--warn); font-size:0.85rem; margin-top:10px; font-weight:500;"></div>
+    <div id="loginErr" style="color:#dc2626; font-size:0.9rem; margin-top:12px; font-weight:600; min-height: 20px; padding: 8px; background: #fee2e2; border-radius: 6px; border-left: 4px solid #dc2626; display: none;"></div>
+    <p style="color:#64748b;font-size:0.75rem;margin-top:16px;text-align:center;">Default password: <code style="background:#f1f5f9;padding:2px 6px;border-radius:3px;">admin</code></p>
   </div>
 </div>
 
@@ -625,7 +626,7 @@
 <script type="module">
 import { executeCodeInBrowser } from './code-runner.js';
 
-const ADMIN_PASSWORD = 'admin-2026'; // Default fallback password (set via ADMIN_PASSWORD env var on server)
+const ADMIN_PASSWORD = 'admin'; // Default fallback password (set via ADMIN_PASSWORD env var on server)
 
 let rows = [];
 let rawSubmissions = {};
@@ -927,11 +928,21 @@ function renderTestLibrary() {
 document.getElementById('adminLoginBtn').addEventListener('click', async () => {
   const entered = document.getElementById('adminPass').value;
   const errEl = document.getElementById('loginErr');
+  const loginBtn = document.getElementById('adminLoginBtn');
+  
+  // Clear previous errors
+  errEl.textContent = '';
+  errEl.style.display = 'none';
   
   if (!entered) {
-    errEl.textContent = 'Please enter a password.';
+    errEl.textContent = '❌ Please enter a password.';
+    errEl.style.display = 'block';
     return;
   }
+  
+  // Show loading state
+  loginBtn.disabled = true;
+  loginBtn.textContent = 'Checking...';
   
   try {
     // Try server-side verification first
@@ -944,7 +955,9 @@ document.getElementById('adminLoginBtn').addEventListener('click', async () => {
     const data = await response.json();
     
     if (data.success) {
+      console.log('✅ Admin login successful');
       errEl.textContent = '';
+      errEl.style.display = 'none';
       document.getElementById('loginScreen').classList.add('hidden');
       document.getElementById('dashboard').classList.remove('hidden');
       loadQuestions().then(() => {
@@ -952,13 +965,18 @@ document.getElementById('adminLoginBtn').addEventListener('click', async () => {
         renderQuestionManager();
       });
     } else {
-      errEl.textContent = 'Incorrect admin password.';
+      console.error('❌ Invalid password:', data.message);
+      errEl.textContent = `❌ ${data.message || 'Incorrect admin password. Please try again.'}`;
+      errEl.style.display = 'block';
+      document.getElementById('adminPass').value = '';
     }
   } catch (err) {
     console.error('Auth error:', err);
     // Fallback to client-side validation for development/offline
-    if (entered === ADMIN_PASSWORD || entered === 'admin123' || entered === 'test-2026' || entered === 'teacher') {
+    if (entered === ADMIN_PASSWORD || entered === 'admin123' || entered === 'test-2026' || entered === 'teacher' || entered === 'admin') {
+      console.log('✅ Admin login successful (fallback)');
       errEl.textContent = '';
+      errEl.style.display = 'none';
       document.getElementById('loginScreen').classList.add('hidden');
       document.getElementById('dashboard').classList.remove('hidden');
       loadQuestions().then(() => {
@@ -966,15 +984,25 @@ document.getElementById('adminLoginBtn').addEventListener('click', async () => {
         renderQuestionManager();
       });
     } else {
-      errEl.textContent = 'Incorrect admin password (server unavailable).';
+      console.error('❌ Invalid password (fallback)');
+      errEl.textContent = '❌ Incorrect admin password. Please try again.';
+      errEl.style.display = 'block';
+      document.getElementById('adminPass').value = '';
     }
+  } finally {
+    // Reset button state
+    loginBtn.disabled = false;
+    loginBtn.textContent = 'Log In to Admin';
   }
 });
 
 document.getElementById('logoutBtn').addEventListener('click', () => {
+  console.log('👋 Admin logout');
   document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('loginScreen').classList.remove('hidden');
   document.getElementById('adminPass').value = '';
+  document.getElementById('loginErr').textContent = '';
+  document.getElementById('loginErr').style.display = 'none';
 });
 
 // 3. Tab navigation

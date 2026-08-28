@@ -65,8 +65,8 @@ try {
 } catch (e) {}
 
 // Read passwords from environment variables with fallbacks
-const STUDENT_PASSWORD = process.env.STUDENT_PASSWORD || 'test-2026';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin-2026';
+const STUDENT_PASSWORD = process.env.STUDENT_PASSWORD || 'password';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
 
 // Default in-memory state fallback
 const DEFAULT_TEST_DATA = {
