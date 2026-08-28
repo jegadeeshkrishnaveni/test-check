@@ -960,10 +960,23 @@ document.getElementById('adminLoginBtn').addEventListener('click', async () => {
       errEl.style.display = 'none';
       document.getElementById('loginScreen').classList.add('hidden');
       document.getElementById('dashboard').classList.remove('hidden');
-      loadQuestions().then(() => {
-        loadResults();
+      
+      // Load dashboard data
+      try {
+        await loadQuestions();
+        console.log('✅ Questions loaded');
+        await loadResults();
+        console.log('✅ Results loaded');
         renderQuestionManager();
-      });
+        console.log('✅ Question manager rendered');
+      } catch (innerErr) {
+        console.error('❌ Error loading dashboard:', innerErr);
+        errEl.textContent = `❌ Error loading dashboard: ${innerErr.message}`;
+        errEl.style.display = 'block';
+        // Show dashboard anyway in case it's just a minor loading issue
+        document.getElementById('dashboard').classList.add('hidden');
+        document.getElementById('loginScreen').classList.remove('hidden');
+      }
     } else {
       console.error('❌ Invalid password:', data.message);
       errEl.textContent = `❌ ${data.message || 'Incorrect admin password. Please try again.'}`;

@@ -744,15 +744,20 @@ app.post('/api/run-code', async (req, res) => {
 });
 
 // Admin Authentication Endpoint
-app.post('/api/verify-admin', express.json({ limit: '10kb' }), (req, res) => {
+app.post('/api/verify-admin', (req, res) => {
   const { password } = req.body;
+  console.log('Admin login attempt received');
   if (!password) {
+    console.warn('Admin login failed: No password provided');
     return res.status(400).json({ success: false, message: 'Password required' });
   }
+  console.log('Checking admin password. Received:', password.substring(0, 1) + '***', 'Expected:', ADMIN_PASSWORD.substring(0, 1) + '***');
   if (password === ADMIN_PASSWORD) {
+    console.log('✅ Admin login successful');
     // In production, you'd generate a JWT token here
     return res.json({ success: true, message: 'Authenticated' });
   }
+  console.warn('❌ Admin login failed: Invalid password');
   return res.status(401).json({ success: false, message: 'Invalid admin password' });
 });
 
