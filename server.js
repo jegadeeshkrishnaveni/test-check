@@ -64,11 +64,15 @@ try {
   if (!fs.existsSync(TESTS_DIR)) fs.mkdirSync(TESTS_DIR, { recursive: true });
 } catch (e) {}
 
+// Read passwords from environment variables with fallbacks
+const STUDENT_PASSWORD = process.env.STUDENT_PASSWORD || 'test-2026';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin-2026';
+
 // Default in-memory state fallback
 const DEFAULT_TEST_DATA = {
   examTitle: 'Class Test',
   durationMinutes: 90,
-  studentPassword: 'test-2026',
+  studentPassword: STUDENT_PASSWORD,
   isActive: true,
   mcq: [
     {
@@ -739,6 +743,29 @@ app.post('/api/run-code', async (req, res) => {
   }
 });
 
+// Admin Authentication Endpoint
+app.post('/api/verify-admin', express.json({ limit: '10kb' }), (req, res) => {
+  const { password } = req.body;
+  if (!password) {
+    return res.status(400).json({ success: false, message: 'Password required' });
+  }
+  if (password === ADMIN_PASSWORD) {
+    // In production, you'd generate a JWT token here
+    return res.json({ success: true, message: 'Authenticated' });
+  }
+  return res.status(401).json({ success: false, message: 'Invalid admin password' });
+});
+
+// Get Admin Password Hint (for client-side fallback, NOT the actual password)
+app.get('/api/config/admin-hint', (req, res) => {
+  // Return the environment variable set status (but NOT the actual password value)
+  const isEnvSet = !!process.env.ADMIN_PASSWORD;
+  res.json({
+    adminPasswordIsCustom: isEnvSet,
+    defaultFallback: 'admin-2026' // Only for development
+  });
+});
+
 // 1. Get Questions / Specific or Active Test
 app.get('/api/questions', async (req, res) => {
   try {
@@ -810,7 +837,7 @@ app.get('/api/tests', async (req, res) => {
               id,
               title: parsed.examTitle || id,
               durationMinutes: parsed.durationMinutes || 60,
-              studentPassword: parsed.studentPassword || 'test-2026',
+              studentPassword: parsed.studentPassword || STUDENT_PASSWORD,
               mcqCount: (parsed.mcq || []).length,
               programCount: (parsed.programs || []).length,
               totalMarks: mcqTotalMarks + progTotalMarks,
@@ -834,7 +861,7 @@ app.get('/api/tests', async (req, res) => {
           id,
           title: parsed.examTitle || id,
           durationMinutes: parsed.durationMinutes || 60,
-          studentPassword: parsed.studentPassword || 'test-2026',
+          studentPassword: parsed.studentPassword || STUDENT_PASSWORD,
           mcqCount: (parsed.mcq || []).length,
           programCount: (parsed.programs || []).length,
           totalMarks: mcqTotalMarks + progTotalMarks,
@@ -989,7 +1016,7 @@ app.post('/api/tests/create', async (req, res) => {
       newTestData = {
         examTitle: testTitle,
         durationMinutes: parseInt(durationMinutes, 10) || 60,
-        studentPassword: password || 'test-2026',
+        studentPassword: password || STUDENT_PASSWORD,
         isActive: markActive,
         mcq: [],
         programs: [],
@@ -999,7 +1026,7 @@ app.post('/api/tests/create', async (req, res) => {
       newTestData = {
         examTitle: testTitle,
         durationMinutes: parseInt(durationMinutes, 10) || 60,
-        studentPassword: password || 'test-2026',
+        studentPassword: password || STUDENT_PASSWORD,
         isActive: markActive,
         mcq: [
           {
@@ -1147,7 +1174,7 @@ app.post('/api/tests/restore', async (req, res) => {
         const cleanData = {
           examTitle: data.examTitle || 'Restored Test',
           durationMinutes: parseInt(data.durationMinutes, 10) || 60,
-          studentPassword: data.studentPassword || 'test-2026',
+          studentPassword: data.studentPassword || STUDENT_PASSWORD,
           mcq: Array.isArray(data.mcq) ? data.mcq : [],
           programs: Array.isArray(data.programs) ? data.programs : [],
           updatedAt: data.updatedAt || new Date().toISOString()

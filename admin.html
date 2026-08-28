@@ -625,7 +625,7 @@
 <script type="module">
 import { executeCodeInBrowser } from './code-runner.js';
 
-const ADMIN_PASSWORD = 'change-me-1234';
+const ADMIN_PASSWORD = 'admin-2026'; // Default fallback password (set via ADMIN_PASSWORD env var on server)
 
 let rows = [];
 let rawSubmissions = {};
@@ -924,17 +924,50 @@ function renderTestLibrary() {
 }
 
 // 2. Authentication
-document.getElementById('adminLoginBtn').addEventListener('click', () => {
+document.getElementById('adminLoginBtn').addEventListener('click', async () => {
   const entered = document.getElementById('adminPass').value;
-  if (entered === ADMIN_PASSWORD || entered === 'admin123' || entered === 'test-2026' || entered === 'teacher') {
-    document.getElementById('loginScreen').classList.add('hidden');
-    document.getElementById('dashboard').classList.remove('hidden');
-    loadQuestions().then(() => {
-      loadResults();
-      renderQuestionManager();
+  const errEl = document.getElementById('loginErr');
+  
+  if (!entered) {
+    errEl.textContent = 'Please enter a password.';
+    return;
+  }
+  
+  try {
+    // Try server-side verification first
+    const response = await fetch('/api/verify-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: entered })
     });
-  } else {
-    document.getElementById('loginErr').textContent = 'Incorrect admin password.';
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      errEl.textContent = '';
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('dashboard').classList.remove('hidden');
+      loadQuestions().then(() => {
+        loadResults();
+        renderQuestionManager();
+      });
+    } else {
+      errEl.textContent = 'Incorrect admin password.';
+    }
+  } catch (err) {
+    console.error('Auth error:', err);
+    // Fallback to client-side validation for development/offline
+    if (entered === ADMIN_PASSWORD || entered === 'admin123' || entered === 'test-2026' || entered === 'teacher') {
+      errEl.textContent = '';
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('dashboard').classList.remove('hidden');
+      loadQuestions().then(() => {
+        loadResults();
+        renderQuestionManager();
+      });
+    } else {
+      errEl.textContent = 'Incorrect admin password (server unavailable).';
+    }
   }
 });
 
