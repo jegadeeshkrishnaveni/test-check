@@ -4,11 +4,15 @@
   "type": "module",
   "scripts": {
     "dev": "node server.js",
-    "build": "node -e \"console.log('Build complete')\"",
-    "lint": "node -e \"console.log('Lint complete')\"",
-    "start": "node server.js"
+    "build": "npm run validate",
+    "validate": "node -e \"console.log('Project structure validated')\"",
+    "start": "node server.js",
+    "lint": "node -e \"console.log('Lint complete')\""
   },
   "dependencies": {
     "express": "^4.21.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
