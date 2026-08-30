@@ -2244,6 +2244,10 @@ document.getElementById('saveQuestionsBtn').addEventListener('click', async () =
 // ---------- MULTI-TEST MANAGEMENT HANDLERS ----------
 async function toggleTestActive(id, newActiveState) {
   if (!id) return;
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
   try {
     const res = await fetch('/api/tests/toggle-active', {
       method: 'POST',
@@ -2252,8 +2256,11 @@ async function toggleTestActive(id, newActiveState) {
     });
     const data = await safeFetchJson(res);
     if (data.success) {
+      if (QUESTIONS && currentTestId === id) {
+        QUESTIONS.isActive = newActiveState;
+      }
       await loadTestsList();
-      showAppToast(data.message || 'Status updated', data.isActive ? 'success' : 'info');
+      showAppToast(data.message || 'Status updated', newActiveState ? 'success' : 'info');
     } else {
       showAppToast(`Error updating test status: ${data.error || 'Unknown error'}`, 'error');
     }
@@ -2264,6 +2271,10 @@ async function toggleTestActive(id, newActiveState) {
 
 async function switchActiveTest(selectedId) {
   if (!selectedId) return;
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
   try {
     const res = await fetch('/api/tests/switch', {
       method: 'POST',
@@ -2286,6 +2297,11 @@ async function switchActiveTest(selectedId) {
 }
 
 async function duplicateTest(id) {
+  if (!id) return;
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
   try {
     const res = await fetch('/api/tests/duplicate', {
       method: 'POST',
@@ -2306,6 +2322,10 @@ async function duplicateTest(id) {
 
 async function deleteTestById(id) {
   if (!id) return;
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
   const testObj = availableTests.find(t => t.id === id);
   const testName = testObj ? testObj.title : id;
 
@@ -2323,26 +2343,22 @@ async function deleteTestById(id) {
     const res = await fetch(`/api/tests/${encodeURIComponent(id)}`, { method: 'DELETE' });
     const data = await safeFetchJson(res);
     if (data.success) {
-      // Remove from browser storage vault
-      try {
-        const vault = getLocalVault();
-        delete vault[id];
-        saveLocalVault(vault);
-      } catch (e) {}
-
-      showAppToast(`Deleted exam "${testName}" permanently.`, 'success');
+      if (id === currentTestId) {
+        currentTestId = null;
+      }
       await loadTestsList();
 
-      if (id === currentTestId) {
+      if (!currentTestId) {
         currentTestId = data.newActiveId || (availableTests.length > 0 ? availableTests[0].id : null);
         if (currentTestId) {
           await loadQuestions(currentTestId);
         } else {
-          QUESTIONS = { examTitle: 'No Exams Available', durationMinutes: 60, studentPassword: '', isActive: false, mcq: [], programs: [] };
+          QUESTIONS = { examTitle: '', durationMinutes: 60, studentPassword: '', isActive: false, mcq: [], programs: [] };
+          renderQuestionManager();
         }
-        renderQuestionManager();
-        loadResults();
       }
+      loadResults();
+      showAppToast(`Deleted exam "${testName}" permanently.`, 'success');
     } else {
       showAppToast(`Error deleting test: ${data.error || 'Unknown error'}`, 'error');
     }

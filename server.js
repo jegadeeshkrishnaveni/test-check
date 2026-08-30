@@ -178,24 +178,6 @@ async function getTestsStore() {
     if (!data) data = { activeTestId: null, activeTestIds: [], tests: {} };
     if (!data.tests) data.tests = {};
 
-    // Scan TESTS_DIR to ensure any disk test file is included if not in store
-    try {
-      if (fs.existsSync(TESTS_DIR)) {
-        const files = await fs.promises.readdir(TESTS_DIR);
-        for (const f of files) {
-          if (f.endsWith('.json')) {
-            const id = f.replace('.json', '');
-            if (!data.tests[id]) {
-              const fileContent = await safeRead(path.join(TESTS_DIR, f), null);
-              if (fileContent && (fileContent.examTitle || fileContent.mcq || fileContent.programs)) {
-                data.tests[id] = fileContent;
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {}
-
     // Ensure explicit isActive boolean on every test
     for (const [tId, tData] of Object.entries(data.tests)) {
       if (tData) {
@@ -208,16 +190,14 @@ async function getTestsStore() {
     }
 
     data.activeTestIds = Object.keys(data.tests).filter(tId => data.tests[tId] && data.tests[tId].isActive === true);
-    if (!data.activeTestId || !data.tests[data.activeTestId]) {
+    if (!data.activeTestId || !data.tests[data.activeTestId] || data.tests[data.activeTestId].isActive !== true) {
       data.activeTestId = data.activeTestIds[0] || Object.keys(data.tests)[0] || null;
     }
 
-    if (data.tests && Object.keys(data.tests).length > 0) {
-      memoryCache.testsStore = data;
-      return data;
-    }
+    memoryCache.testsStore = data;
+    return data;
   } catch (err) {}
-  return memoryCache.testsStore;
+  return memoryCache.testsStore || { activeTestId: null, activeTestIds: [], tests: {} };
 }
 
 async function saveTestsStore(store) {
@@ -992,18 +972,17 @@ app.post('/api/tests/toggle-active', async (req, res) => {
     testObj.updatedAt = new Date().toISOString();
     store.tests[id] = testObj;
 
-    // Update active IDs list
-    if (!Array.isArray(store.activeTestIds)) store.activeTestIds = [];
+    // Update active IDs list cleanly
+    store.activeTestIds = Object.keys(store.tests).filter(tId => store.tests[tId] && store.tests[tId].isActive === true);
     if (shouldBeActive) {
-      if (!store.activeTestIds.includes(id)) {
-        store.activeTestIds.push(id);
-      }
       store.activeTestId = id;
       await safeWrite(QUESTIONS_FILE, JSON.stringify(testObj, null, 2));
     } else {
-      store.activeTestIds = store.activeTestIds.filter(tId => tId !== id);
       if (store.activeTestId === id) {
         store.activeTestId = store.activeTestIds[0] || null;
+        if (store.activeTestId && store.tests[store.activeTestId]) {
+          await safeWrite(QUESTIONS_FILE, JSON.stringify(store.tests[store.activeTestId], null, 2));
+        }
       }
     }
 
@@ -1173,14 +1152,14 @@ app.delete('/api/tests/:id', async (req, res) => {
 
     const testFile = path.join(TESTS_DIR, `${id}.json`);
     try {
-      if (fs.existsSync(testFile)) await fs.promises.unlink(testFile);
+      if (fs.existsSync(testFile)) {
+        fs.unlinkSync(testFile);
+      }
     } catch (e) {}
 
     delete store.tests[id];
 
-    if (Array.isArray(store.activeTestIds)) {
-      store.activeTestIds = store.activeTestIds.filter(tId => tId !== id);
-    }
+    store.activeTestIds = Object.keys(store.tests).filter(tId => store.tests[tId] && store.tests[tId].isActive === true);
 
     const remainingIds = Object.keys(store.tests);
     let newActiveId = null;
@@ -1276,11 +1255,16 @@ app.post('/api/save-questions', async (req, res) => {
     const store = await getTestsStore();
     if (!store.tests) store.tests = {};
 
+    // If test was deleted and is no longer in store, reject creating a deleted test
+    const existingTest = store.tests[testId];
+    if (!existingTest && Object.keys(store.tests).length > 0 && testId !== 'default') {
+      return res.json({ success: false, error: 'Test no longer exists' });
+    }
+
     // Preserve existing isActive boolean so autosave does not tamper with test status
-    const existingTest = store.tests[testId] || {};
-    const preservedActive = questionsData.isActive !== undefined 
-      ? Boolean(questionsData.isActive) 
-      : (existingTest.isActive !== undefined ? Boolean(existingTest.isActive) : true);
+    const preservedActive = (existingTest && existingTest.isActive !== undefined) 
+      ? Boolean(existingTest.isActive) 
+      : (questionsData.isActive !== undefined ? Boolean(questionsData.isActive) : true);
 
     const cleanData = {
       ...questionsData,
@@ -1293,14 +1277,9 @@ app.post('/api/save-questions', async (req, res) => {
     await safeWrite(path.join(TESTS_DIR, `${testId}.json`), jsonStr);
 
     store.tests[testId] = cleanData;
-    if (preservedActive && !store.activeTestIds?.includes(testId)) {
-      if (!Array.isArray(store.activeTestIds)) store.activeTestIds = [];
-      store.activeTestIds.push(testId);
-    } else if (!preservedActive && store.activeTestIds?.includes(testId)) {
-      store.activeTestIds = store.activeTestIds.filter(t => t !== testId);
-    }
+    store.activeTestIds = Object.keys(store.tests).filter(tId => store.tests[tId] && store.tests[tId].isActive === true);
 
-    if (store.activeTestId === testId || preservedActive) {
+    if (store.activeTestId === testId || (preservedActive && !store.activeTestId)) {
       await safeWrite(QUESTIONS_FILE, jsonStr);
     }
 

@@ -1,5 +1,5 @@
 {
-  "activeTestId": "test_mtfg54y3_w0zj",
+  "activeTestId": "default",
   "tests": {
     "default": {
       "examTitle": "Final Exam Demo",
@@ -51,7 +51,7 @@
       "examTitle": "Sample Unit Test",
       "durationMinutes": 45,
       "studentPassword": "test",
-      "isActive": true,
+      "isActive": false,
       "mcq": [
         {
           "id": "m_1788071398859",
@@ -91,7 +91,8 @@
           ]
         }
       ],
-      "createdAt": "2026-08-30T06:29:58.859Z"
+      "createdAt": "2026-08-30T06:29:58.859Z",
+      "updatedAt": "2026-08-30T10:11:26.893Z"
     },
     "test_mtffms31_vat8": {
       "examTitle": "Midterm Exam 2026",
@@ -234,9 +235,8 @@
   },
   "activeTestIds": [
     "default",
-    "test_2026",
-    "test_mtffjlca_ddgv",
     "test_mtffms31_vat8",
-    "test_mtfg54y3_w0zj"
+    "test_mtfg54y3_w0zj",
+    "test_2026"
   ]
 }
