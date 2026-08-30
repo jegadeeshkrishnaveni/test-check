@@ -745,16 +745,20 @@ async function safeFetchJson(res) {
 // 1. Fetch Questions from Server API
 async function loadQuestions(testIdToLoad) {
   try {
-    const url = testIdToLoad ? `/api/questions?testId=${encodeURIComponent(testIdToLoad)}` : '/api/questions';
+    const targetId = testIdToLoad || currentTestId;
+    const url = targetId ? `/api/questions?testId=${encodeURIComponent(targetId)}` : '/api/questions';
     const res = await fetch(url);
     const data = await safeFetchJson(res);
     if (data && (data.examTitle || data.mcq || data.programs)) {
       QUESTIONS = data;
+      if (data.testId) currentTestId = data.testId;
+      else if (targetId) currentTestId = targetId;
     } else {
       // Fallback from local vault
       const vault = getLocalVault();
-      if (testIdToLoad && vault[testIdToLoad]) {
-        QUESTIONS = vault[testIdToLoad];
+      if (targetId && vault[targetId]) {
+        QUESTIONS = vault[targetId];
+        currentTestId = targetId;
       }
     }
     if (testIdToLoad) currentTestId = testIdToLoad;
@@ -2240,7 +2244,7 @@ document.getElementById('saveQuestionsBtn').addEventListener('click', async () =
   try {
     const payload = {
       ...QUESTIONS,
-      testId: currentTestId
+      testId: currentTestId || 'default'
     };
     const res = await fetch('/api/save-questions', {
       method: 'POST',
@@ -2250,7 +2254,12 @@ document.getElementById('saveQuestionsBtn').addEventListener('click', async () =
     const result = await safeFetchJson(res);
 
     if (result.success) {
-      saveAlert.innerHTML = `<div style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:10px 16px;border-radius:8px;font-weight:600;">✓ Exam saved successfully! ${result.githubSynced ? 'Also synced to your GitHub repo!' : ''}</div>`;
+      // Sync local storage immediately
+      const vault = getLocalVault();
+      vault[currentTestId || 'default'] = JSON.parse(JSON.stringify(payload));
+      saveLocalVault(vault);
+
+      saveAlert.innerHTML = `<div style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:10px 16px;border-radius:8px;font-weight:600;">✓ Exam "${QUESTIONS.examTitle || 'Test'}" saved successfully!</div>`;
       await loadTestsList();
     } else {
       saveAlert.innerHTML = `<div style="background:#fef2f2;color:#dc2626;padding:10px 16px;border-radius:8px;font-weight:600;">⚠️ ${result.error || 'Failed to save.'}</div>`;
@@ -2457,6 +2466,17 @@ document.getElementById('switchTestBtn').addEventListener('click', async () => {
   if (!selectedId) return;
   await switchActiveTest(selectedId);
 });
+
+// Dropdown Change Listener to immediately load questions of selected test
+if (document.getElementById('testSelectDropdown')) {
+  document.getElementById('testSelectDropdown').addEventListener('change', async (e) => {
+    const selectedId = e.target.value;
+    if (!selectedId) return;
+    currentTestId = selectedId;
+    await loadQuestions(selectedId);
+    renderQuestionManager();
+  });
+}
 
 function openCreateTestModal() {
   document.getElementById('newTestTitle').value = '';

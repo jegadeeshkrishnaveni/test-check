@@ -191,27 +191,32 @@ async function ensureDefaultTestExists() {
     const store = await getTestsStore();
     if (!store.tests) store.tests = {};
 
-    if (!store.tests['default']) {
-      store.tests['default'] = DEFAULT_TEST_DATA;
-    }
-    if (!store.activeTestId) store.activeTestId = 'default';
-    if (!Array.isArray(store.activeTestIds) || store.activeTestIds.length === 0) {
+    // Only bootstrap default test if store has no tests at all
+    if (Object.keys(store.tests).length === 0) {
+      // Try reading bundled questions.json if present
+      let initialData = DEFAULT_TEST_DATA;
+      if (fs.existsSync(QUESTIONS_FILE)) {
+        try {
+          const qContent = await fs.promises.readFile(QUESTIONS_FILE, 'utf-8');
+          const qData = JSON.parse(qContent);
+          if (qData && (qData.mcq || qData.programs)) {
+            initialData = qData;
+          }
+        } catch (e) {}
+      }
+      store.tests['default'] = initialData;
+      store.activeTestId = 'default';
       store.activeTestIds = ['default'];
+      memoryCache.questions = initialData;
+      await saveTestsStore(store);
+    } else {
+      if (!store.activeTestId) {
+        store.activeTestId = Object.keys(store.tests)[0];
+      }
+      if (!Array.isArray(store.activeTestIds) || store.activeTestIds.length === 0) {
+        store.activeTestIds = [store.activeTestId];
+      }
     }
-
-    // Try reading bundled questions.json if present
-    if (fs.existsSync(QUESTIONS_FILE)) {
-      try {
-        const qContent = await fs.promises.readFile(QUESTIONS_FILE, 'utf-8');
-        const qData = JSON.parse(qContent);
-        if (qData && (qData.mcq || qData.programs)) {
-          store.tests['default'] = qData;
-          memoryCache.questions = qData;
-        }
-      } catch (e) {}
-    }
-
-    await saveTestsStore(store);
   } catch (e) {
     console.warn('Bootstrap sync warning:', e.message);
   }
@@ -793,29 +798,29 @@ app.get('/api/questions', async (req, res) => {
     if (testId) {
       if (store.tests && store.tests[testId]) {
         res.setHeader('Content-Type', 'application/json');
-        return res.json(store.tests[testId]);
+        return res.json({ ...store.tests[testId], testId });
       }
       const specificPath = path.join(TESTS_DIR, `${testId}.json`);
       const fileData = await safeRead(specificPath, null);
       if (fileData) {
         res.setHeader('Content-Type', 'application/json');
-        return res.json(fileData);
+        return res.json({ ...fileData, testId });
       }
     }
     
     // Check active test in store
-    const activeId = store.activeTestId || 'default';
+    const activeId = store.activeTestId || (store.tests ? Object.keys(store.tests)[0] : 'default') || 'default';
     if (store.tests && store.tests[activeId]) {
       res.setHeader('Content-Type', 'application/json');
-      return res.json(store.tests[activeId]);
+      return res.json({ ...store.tests[activeId], testId: activeId });
     }
     
     const fileData = await safeRead(QUESTIONS_FILE, memoryCache.questions || DEFAULT_TEST_DATA);
     res.setHeader('Content-Type', 'application/json');
-    res.json(fileData);
+    res.json({ ...(fileData || DEFAULT_TEST_DATA), testId: 'default' });
   } catch (err) {
     console.error('Failed to read questions:', err);
-    res.json(memoryCache.questions || DEFAULT_TEST_DATA);
+    res.json({ ...(memoryCache.questions || DEFAULT_TEST_DATA), testId: 'default' });
   }
 });
 

@@ -44,7 +44,7 @@ if (typeof window !== 'undefined') {
  * @param {number} timeoutMs - max execution time in ms (default 6000ms)
  * @returns {Promise<{ output: string, error?: string, executionTimeMs: number }>}
  */
-export async function executeCodeInBrowser(language, code, stdin = '', timeoutMs = 6000) {
+async function executeCodeInBrowser(language, code, stdin = '', timeoutMs = 6000) {
   const startTime = performance.now();
   const rawLang = (language || 'python').toLowerCase().trim();
   let lang = rawLang;
@@ -762,4 +762,10 @@ function transpileCToJS(cCode) {
 
 if (typeof window !== 'undefined') {
   window.executeCodeInBrowser = executeCodeInBrowser;
+}
+if (typeof globalThis !== 'undefined') {
+  globalThis.executeCodeInBrowser = executeCodeInBrowser;
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { executeCodeInBrowser };
 }

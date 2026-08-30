@@ -688,6 +688,22 @@ let timerInterval = null;
 let remainingSeconds = 90 * 60;
 let autosaveTimeout = null;
 
+// Global CodeMirror instances map: pId -> CodeMirror instance
+window.codeEditors = window.codeEditors || {};
+let currentEditorTheme = 'dracula';
+let currentEditorFontSize = 14;
+
+function syncAllEditorsToState() {
+  if (!window.codeEditors) return;
+  Object.entries(window.codeEditors).forEach(([pId, cm]) => {
+    if (programAnswers[pId] && cm) {
+      const lang = programAnswers[pId].language || 'python';
+      if (!programAnswers[pId].code) programAnswers[pId].code = {};
+      programAnswers[pId].code[lang] = cm.getValue();
+    }
+  });
+}
+
 // Starter templates for the 4 core supported languages: Python, Java, C, C++
 const STARTERS = {
   python: `# Write your Python solution here\nimport sys\n\ndef solve():\n    # Read input from stdin\n    # Example: line = sys.stdin.read().strip()\n    pass\n\nsolve()\n`,
@@ -948,21 +964,6 @@ function renderTestUI() {
     if (l === 'cpp' || l === 'c++') return 'text/x-c++src';
     if (l === 'javascript' || l === 'js') return 'javascript';
     return 'python';
-  }
-
-  // Global CodeMirror instances map: pId -> CodeMirror instance
-  window.codeEditors = window.codeEditors || {};
-  let currentEditorTheme = 'dracula';
-  let currentEditorFontSize = 14;
-
-  function syncAllEditorsToState() {
-    if (!window.codeEditors) return;
-    Object.entries(window.codeEditors).forEach(([pId, cm]) => {
-      if (programAnswers[pId] && cm) {
-        const lang = programAnswers[pId].language || 'python';
-        programAnswers[pId].code[lang] = cm.getValue();
-      }
-    });
   }
 
   // Render Programs
@@ -1508,7 +1509,7 @@ function showFinalResult(sub) {
   document.getElementById('resStudentRoll').textContent = sub.roll || currentStudent.roll;
 
   const total = sub.totalScore ?? 0;
-  const max = sub.maxScore || (QUESTIONS.mcq.reduce((a,b)=>a+(b.marks||1),0) + QUESTIONS.programs.reduce((a,b)=>a+(b.marks||5),0));
+  const max = sub.maxScore || (QUESTIONS?.mcq ? QUESTIONS.mcq.reduce((a,b)=>a+(b.marks||1),0) + (QUESTIONS.programs||[]).reduce((a,b)=>a+(b.marks||5),0) : 0);
   document.getElementById('resTotalScore').textContent = total;
   document.getElementById('resMaxScore').textContent = max;
 
