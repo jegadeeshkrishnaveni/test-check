@@ -478,6 +478,7 @@
         <span style="font-weight:700; font-size:0.95rem;">📑 Editing Test:</span>
         <select id="testSelectDropdown" style="width:auto; min-width:240px; font-weight:600; padding:7px 12px;"></select>
         <button class="btn-ghost" id="switchTestBtn" style="padding:7px 14px;">Switch Test</button>
+        <button id="toggleCurrentActiveBtn" style="padding:7px 14px; font-size:0.85rem; font-weight:600; border-radius:6px; cursor:pointer;">Loading status...</button>
       </div>
       <div style="display:flex; gap:10px;">
         <button class="btn-primary" id="openNewTestModalBtn" style="padding:7px 14px;">➕ Create Another Test</button>
@@ -501,7 +502,10 @@
 
     <!-- Exam Config Settings -->
     <div class="card" style="max-width:100%; margin-bottom:24px; padding:20px;">
-      <h3 style="margin:0 0 14px; font-size:1rem;">⚙️ General Exam Settings</h3>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+        <h3 style="margin:0; font-size:1rem;">⚙️ General Exam Settings</h3>
+        <div id="editorExamVisibilityBadge" style="display:flex; align-items:center; gap:8px;"></div>
+      </div>
       <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:16px;">
         <div>
           <label style="font-size:0.8rem; font-weight:600; display:block; margin-bottom:4px;">Exam Title</label>
@@ -689,24 +693,36 @@ function showConfirmModal({ title = 'Confirm Action', message = 'Are you sure?',
 
     if (isDanger) {
       okBtn.className = 'btn-danger';
+      okBtn.style.background = '#dc2626';
+      okBtn.style.color = '#ffffff';
     } else {
       okBtn.className = 'btn-primary';
+      okBtn.style.background = '#2563eb';
+      okBtn.style.color = '#ffffff';
     }
 
     modal.classList.remove('hidden');
 
-    function cleanup(result) {
+    function closeDialog(confirmed) {
       modal.classList.add('hidden');
-      okBtn.removeEventListener('click', onOk);
-      cancelBtn.removeEventListener('click', onCancel);
-      resolve(result);
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+      modal.onclick = null;
+      window.removeEventListener('keydown', keyHandler);
+      resolve(confirmed);
     }
 
-    function onOk() { cleanup(true); }
-    function onCancel() { cleanup(false); }
+    okBtn.onclick = () => closeDialog(true);
+    cancelBtn.onclick = () => closeDialog(false);
+    modal.onclick = (e) => {
+      if (e.target === modal) closeDialog(false);
+    };
 
-    okBtn.addEventListener('click', onOk);
-    cancelBtn.addEventListener('click', onCancel);
+    function keyHandler(e) {
+      if (e.key === 'Escape') closeDialog(false);
+      if (e.key === 'Enter') closeDialog(true);
+    }
+    window.addEventListener('keydown', keyHandler);
   });
 }
 
@@ -848,12 +864,28 @@ async function loadTestsList() {
       }
     }
 
-    // 4. Update Header in Question Editor
+    // 4. Update Header & Toggle in Question Editor
     const heading = document.getElementById('editingExamHeading');
+    const currentObj = availableTests.find(t => t.id === currentTestId);
+    const isCurActive = currentObj ? !!currentObj.isActive : false;
+
     if (heading && QUESTIONS?.examTitle) {
-      const currentObj = availableTests.find(t => t.id === currentTestId);
-      const isCurActive = currentObj ? currentObj.isActive : false;
-      heading.innerHTML = `Question & Exam Manager: ${escapeHtml(QUESTIONS.examTitle)} ${isCurActive ? '<span style="font-size:0.75rem;background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:2px 8px;border-radius:12px;vertical-align:middle;margin-left:8px;">🟢 Live for Students</span>' : '<span style="font-size:0.75rem;background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;padding:2px 8px;border-radius:12px;vertical-align:middle;margin-left:8px;">⚪ Inactive (Hidden)</span>'}`;
+      heading.innerHTML = `Question & Exam Manager: ${escapeHtml(QUESTIONS.examTitle)} ${isCurActive ? '<span style="font-size:0.75rem;background:#16a34a;color:#ffffff;font-weight:700;padding:3px 10px;border-radius:12px;vertical-align:middle;margin-left:8px;">🟢 LIVE FOR STUDENTS</span>' : '<span style="font-size:0.75rem;background:#64748b;color:#ffffff;font-weight:700;padding:3px 10px;border-radius:12px;vertical-align:middle;margin-left:8px;">⚪ INACTIVE (HIDDEN)</span>'}`;
+    }
+
+    const toggleBtn = document.getElementById('toggleCurrentActiveBtn');
+    if (toggleBtn) {
+      if (isCurActive) {
+        toggleBtn.style.background = '#dc2626';
+        toggleBtn.style.color = '#ffffff';
+        toggleBtn.style.border = 'none';
+        toggleBtn.innerHTML = '⏸️ Deactivate This Exam (Hide)';
+      } else {
+        toggleBtn.style.background = '#16a34a';
+        toggleBtn.style.color = '#ffffff';
+        toggleBtn.style.border = 'none';
+        toggleBtn.innerHTML = '🟢 Activate This Exam (Make Live)';
+      }
     }
 
     // 5. Render All Tests Library
@@ -873,39 +905,42 @@ function renderTestLibrary() {
     return;
   }
 
-  grid.innerHTML = availableTests.map(t => `
-    <div style="background:#fff;border:1.5px solid ${t.isActive ? '#10b981' : 'var(--line)'};border-radius:12px;padding:20px;box-shadow:${t.isActive ? '0 4px 14px rgba(16,185,129,0.12)' : '0 1px 3px rgba(0,0,0,0.04)'};display:flex;flex-direction:column;justify-content:space-between;position:relative;">
+  grid.innerHTML = availableTests.map(t => {
+    const isLive = !!t.isActive;
+    return `
+    <div id="test-card-${t.id}" style="background:${isLive ? '#ffffff' : '#f8fafc'};border:2px ${isLive ? 'solid #16a34a' : 'dashed #94a3b8'};border-radius:12px;padding:20px;box-shadow:${isLive ? '0 4px 16px rgba(22,163,74,0.16)' : '0 1px 3px rgba(0,0,0,0.04)'};display:flex;flex-direction:column;justify-content:space-between;position:relative;transition:all 0.25s ease;">
       <div>
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:8px;">
-          <h3 style="margin:0;font-size:1.05rem;color:var(--ink);">${escapeHtml(t.title)}</h3>
-          ${t.isActive 
-            ? `<span style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;font-size:0.75rem;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;">🟢 LIVE FOR STUDENTS</span>` 
-            : `<span style="background:#f8fafc;color:#64748b;border:1px solid #e2e8f0;font-size:0.75rem;font-weight:600;padding:3px 8px;border-radius:6px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;">⚪ INACTIVE (HIDDEN)</span>`
+          <h3 style="margin:0;font-size:1.08rem;color:var(--ink);font-weight:700;">${escapeHtml(t.title)}</h3>
+          ${isLive 
+            ? `<span style="background:#16a34a;color:#ffffff;font-size:0.75rem;font-weight:800;padding:4px 10px;border-radius:6px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;box-shadow:0 1px 3px rgba(22,163,74,0.3);">🟢 LIVE FOR STUDENTS</span>` 
+            : `<span style="background:#64748b;color:#ffffff;font-size:0.75rem;font-weight:700;padding:4px 10px;border-radius:6px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;">⚪ INACTIVE (HIDDEN)</span>`
           }
         </div>
 
-        <div style="background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:16px;font-size:0.85rem;color:#475569;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-          <div>⏱️ <strong>${t.durationMinutes}</strong> mins</div>
-          <div>🏆 <strong>${t.totalMarks}</strong> marks</div>
-          <div>❓ <strong>${t.mcqCount}</strong> MCQs</div>
-          <div>💻 <strong>${t.programCount}</strong> Programs</div>
-          <div style="grid-column:1/-1;border-top:1px dashed #cbd5e1;padding-top:6px;margin-top:2px;">
-            🔒 Student Pass: <code style="font-family:var(--mono);font-weight:700;color:var(--ink);">${escapeHtml(t.studentPassword)}</code>
+        <div style="background:${isLive ? '#f0fdf4' : '#f1f5f9'};border:1px solid ${isLive ? '#bbf7d0' : '#e2e8f0'};border-radius:8px;padding:12px;margin-bottom:16px;font-size:0.85rem;color:#334155;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div>⏱️ Duration: <strong>${t.durationMinutes}</strong> mins</div>
+          <div>🏆 Total: <strong>${t.totalMarks}</strong> marks</div>
+          <div>❓ MCQs: <strong>${t.mcqCount}</strong> questions</div>
+          <div>💻 Code: <strong>${t.programCount}</strong> problems</div>
+          <div style="grid-column:1/-1;border-top:1px dashed ${isLive ? '#86efac' : '#cbd5e1'};padding-top:6px;margin-top:2px;">
+            🔒 Student Password: <code style="font-family:var(--mono);font-weight:700;color:var(--ink);">${escapeHtml(t.studentPassword)}</code>
           </div>
         </div>
       </div>
 
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        ${t.isActive 
-          ? `<button class="toggle-active-btn" data-id="${t.id}" data-active="false" style="padding:7px 12px;font-size:0.82rem;flex:1.2;background:#fff;color:#d97706;border:1px solid #fcd34d;border-radius:6px;font-weight:600;cursor:pointer;">⏸️ Deactivate (Hide)</button>` 
-          : `<button class="btn-success toggle-active-btn" data-id="${t.id}" data-active="true" style="padding:7px 12px;font-size:0.82rem;flex:1.2;">🟢 Activate (Make Live)</button>`
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        ${isLive 
+          ? `<button class="toggle-active-btn" data-id="${t.id}" data-active="false" style="padding:8px 12px;font-size:0.82rem;flex:1.4;background:#dc2626;color:#ffffff;border:none;border-radius:6px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 2px 6px rgba(220,38,38,0.25);">⏸️ Deactivate (Hide)</button>` 
+          : `<button class="toggle-active-btn" data-id="${t.id}" data-active="true" style="padding:8px 12px;font-size:0.82rem;flex:1.4;background:#16a34a;color:#ffffff;border:none;border-radius:6px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 2px 6px rgba(22,163,74,0.25);">🟢 Activate (Make Live)</button>`
         }
-        <button class="btn-primary edit-test-btn" data-id="${t.id}" style="padding:7px 12px;font-size:0.82rem;flex:1;">✏️ Edit Questions</button>
-        <button class="btn-ghost duplicate-test-btn" data-id="${t.id}" title="Duplicate Exam" style="padding:7px 10px;font-size:0.82rem;">📋</button>
-        <button class="btn-danger delete-test-grid-btn" data-id="${t.id}" title="Delete Exam" style="padding:7px 10px;font-size:0.82rem;">🗑️</button>
+        <button class="btn-primary edit-test-btn" data-id="${t.id}" style="padding:8px 12px;font-size:0.82rem;flex:1;display:inline-flex;align-items:center;justify-content:center;gap:4px;">✏️ Edit</button>
+        <button class="btn-ghost duplicate-test-btn" data-id="${t.id}" title="Duplicate Exam" style="padding:8px 10px;font-size:0.82rem;">📋</button>
+        <button class="btn-danger delete-test-grid-btn" data-id="${t.id}" title="Delete Exam Permanently" style="padding:8px 10px;font-size:0.82rem;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;">🗑️</button>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   // Wire grid buttons
   grid.querySelectorAll('.toggle-active-btn').forEach(btn => {
@@ -2527,6 +2562,17 @@ document.getElementById('confirmCreateTestBtn').addEventListener('click', async 
     btn.textContent = 'Create & Open Test';
   }
 });
+
+// Toggle Active Status of Currently Selected Test
+if (document.getElementById('toggleCurrentActiveBtn')) {
+  document.getElementById('toggleCurrentActiveBtn').addEventListener('click', async () => {
+    const selectedId = document.getElementById('testSelectDropdown')?.value || currentTestId;
+    if (!selectedId) return;
+    const currentObj = availableTests.find(t => t.id === selectedId);
+    const isCurActive = currentObj ? !!currentObj.isActive : false;
+    await toggleTestActive(selectedId, !isCurActive);
+  });
+}
 
 // Delete Active Test from Editor
 document.getElementById('deleteTestBtn').addEventListener('click', async () => {

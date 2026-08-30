@@ -982,6 +982,8 @@ app.post('/api/tests/toggle-active', async (req, res) => {
         store.activeTestId = store.activeTestIds[0] || null;
         if (store.activeTestId && store.tests[store.activeTestId]) {
           await safeWrite(QUESTIONS_FILE, JSON.stringify(store.tests[store.activeTestId], null, 2));
+        } else {
+          await safeWrite(QUESTIONS_FILE, JSON.stringify({ examTitle: '', durationMinutes: 60, studentPassword: '', isActive: false, mcq: [], programs: [] }, null, 2));
         }
       }
     }
