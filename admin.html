@@ -799,7 +799,23 @@ async function loadTestsList() {
   try {
     const res = await fetch('/api/tests');
     const data = await safeFetchJson(res);
-    availableTests = data.tests || [];
+    if (Array.isArray(data.tests) && data.tests.length > 0) {
+      availableTests = data.tests;
+      try {
+        localStorage.setItem('CLASS_TESTS_LIBRARY_BACKUP', JSON.stringify(availableTests));
+      } catch (e) {}
+    } else if (availableTests.length === 0) {
+      // Fallback from localStorage if server cold-started or returned empty
+      try {
+        const cached = localStorage.getItem('CLASS_TESTS_LIBRARY_BACKUP');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            availableTests = parsed;
+          }
+        }
+      } catch (e) {}
+    }
 
     // Update banner status
     const banner = document.getElementById('testVaultStatusBanner');
@@ -2283,6 +2299,42 @@ async function toggleTestActive(id, newActiveState) {
     clearTimeout(autoSaveTimer);
     autoSaveTimer = null;
   }
+
+  // 1. Instant Optimistic UI Update (Immediate visual response)
+  const testObj = availableTests.find(t => t.id === id);
+  if (testObj) {
+    testObj.isActive = newActiveState;
+  }
+  if (QUESTIONS && currentTestId === id) {
+    QUESTIONS.isActive = newActiveState;
+  }
+
+  // Immediately re-render test cards grid & toolbar button
+  renderTestLibrary();
+  const heading = document.getElementById('editingExamHeading');
+  if (heading && QUESTIONS?.examTitle && currentTestId === id) {
+    heading.innerHTML = `Question & Exam Manager: ${escapeHtml(QUESTIONS.examTitle)} ${newActiveState ? '<span style="font-size:0.75rem;background:#16a34a;color:#ffffff;font-weight:700;padding:3px 10px;border-radius:12px;vertical-align:middle;margin-left:8px;">🟢 LIVE FOR STUDENTS</span>' : '<span style="font-size:0.75rem;background:#64748b;color:#ffffff;font-weight:700;padding:3px 10px;border-radius:12px;vertical-align:middle;margin-left:8px;">⚪ INACTIVE (HIDDEN)</span>'}`;
+  }
+  const toggleBtn = document.getElementById('toggleCurrentActiveBtn');
+  if (toggleBtn && currentTestId === id) {
+    if (newActiveState) {
+      toggleBtn.style.background = '#dc2626';
+      toggleBtn.style.color = '#ffffff';
+      toggleBtn.style.border = 'none';
+      toggleBtn.innerHTML = '⏸️ Deactivate This Exam (Hide)';
+    } else {
+      toggleBtn.style.background = '#16a34a';
+      toggleBtn.style.color = '#ffffff';
+      toggleBtn.style.border = 'none';
+      toggleBtn.innerHTML = '🟢 Activate This Exam (Make Live)';
+    }
+  }
+
+  // Cache to browser localStorage
+  try {
+    localStorage.setItem('CLASS_TESTS_LIBRARY_BACKUP', JSON.stringify(availableTests));
+  } catch (e) {}
+
   try {
     const res = await fetch('/api/tests/toggle-active', {
       method: 'POST',
@@ -2291,16 +2343,13 @@ async function toggleTestActive(id, newActiveState) {
     });
     const data = await safeFetchJson(res);
     if (data.success) {
-      if (QUESTIONS && currentTestId === id) {
-        QUESTIONS.isActive = newActiveState;
-      }
+      showAppToast(data.message || (newActiveState ? 'Exam is now LIVE for students' : 'Exam is hidden from students'), newActiveState ? 'success' : 'info');
       await loadTestsList();
-      showAppToast(data.message || 'Status updated', newActiveState ? 'success' : 'info');
     } else {
-      showAppToast(`Error updating test status: ${data.error || 'Unknown error'}`, 'error');
+      showAppToast(`Notice: ${data.error || 'Server error'}`, 'warning');
     }
   } catch (err) {
-    showAppToast(`Failed to update test: ${err.message}`, 'error');
+    showAppToast(`Status updated locally: ${err.message}`, 'info');
   }
 }
 

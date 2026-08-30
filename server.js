@@ -43,30 +43,64 @@ app.use((req, res, next) => {
   next();
 });
 
-// Determine safe storage directory (use /tmp on read-only environments like Vercel Lambda)
-let BASE_DATA_DIR = path.join(__dirname, 'data');
-try {
-  if (!fs.existsSync(BASE_DATA_DIR)) {
-    fs.mkdirSync(BASE_DATA_DIR, { recursive: true });
-  }
-} catch (err) {
-  BASE_DATA_DIR = path.join(os.tmpdir(), 'class-test-portal', 'data');
+// Test filesystem writability (Vercel Serverless Lambdas have read-only __dirname)
+const isWritableFs = (() => {
   try {
-    fs.mkdirSync(BASE_DATA_DIR, { recursive: true });
-  } catch (e) {}
-}
+    const testFile = path.join(__dirname, '.test_write_' + Date.now());
+    fs.writeFileSync(testFile, '1');
+    fs.unlinkSync(testFile);
+    return true;
+  } catch (e) {
+    return false;
+  }
+})();
+
+// Determine safe storage directory (use /tmp on read-only environments like Vercel Lambda)
+const BASE_DATA_DIR = isWritableFs 
+  ? path.join(__dirname, 'data') 
+  : path.join(os.tmpdir(), 'class-test-portal', 'data');
+
+const TESTS_STORE_FILE = isWritableFs
+  ? path.join(__dirname, 'tests_store.json')
+  : path.join(os.tmpdir(), 'class-test-portal', 'tests_store.json');
+
+const QUESTIONS_FILE = isWritableFs
+  ? path.join(__dirname, 'questions.json')
+  : path.join(os.tmpdir(), 'class-test-portal', 'questions.json');
 
 const SUBMISSIONS_FILE = path.join(BASE_DATA_DIR, 'submissions.json');
 const GITHUB_CONFIG_FILE = path.join(BASE_DATA_DIR, 'github-config.json');
-const QUESTIONS_FILE = path.join(__dirname, 'questions.json');
-const TESTS_STORE_FILE = path.join(__dirname, 'tests_store.json');
 const TESTS_DIR = path.join(BASE_DATA_DIR, 'tests');
 const STUDENTS_DIR = path.join(BASE_DATA_DIR, 'students');
 
 try {
+  if (!fs.existsSync(BASE_DATA_DIR)) fs.mkdirSync(BASE_DATA_DIR, { recursive: true });
   if (!fs.existsSync(STUDENTS_DIR)) fs.mkdirSync(STUDENTS_DIR, { recursive: true });
   if (!fs.existsSync(TESTS_DIR)) fs.mkdirSync(TESTS_DIR, { recursive: true });
+
+  // On read-only runtime (Vercel), seed /tmp storage with bundled defaults if not yet created
+  if (!isWritableFs) {
+    const bundledStore = path.join(__dirname, 'tests_store.json');
+    if (!fs.existsSync(TESTS_STORE_FILE) && fs.existsSync(bundledStore)) {
+      try {
+        fs.copyFileSync(bundledStore, TESTS_STORE_FILE);
+      } catch (e) {}
+    }
+    const bundledQuestions = path.join(__dirname, 'questions.json');
+    if (!fs.existsSync(QUESTIONS_FILE) && fs.existsSync(bundledQuestions)) {
+      try {
+        fs.copyFileSync(bundledQuestions, QUESTIONS_FILE);
+      } catch (e) {}
+    }
+    const bundledSubs = path.join(__dirname, 'data', 'submissions.json');
+    if (!fs.existsSync(SUBMISSIONS_FILE) && fs.existsSync(bundledSubs)) {
+      try {
+        fs.copyFileSync(bundledSubs, SUBMISSIONS_FILE);
+      } catch (e) {}
+    }
+  }
 } catch (e) {}
+
 
 // Read passwords from environment variables with fallbacks
 const STUDENT_PASSWORD = process.env.STUDENT_PASSWORD || 'test-2026';
@@ -142,11 +176,15 @@ const memoryCache = {
 // Safe write helper that writes to disk when possible and always maintains in-memory copy
 async function safeWrite(filePath, content) {
   try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     await fs.promises.writeFile(filePath, content, 'utf-8');
   } catch (err) {
-    // If target is read-only, attempt writing to /tmp
+    // If target is read-only, write to /tmp
     try {
-      const fallbackPath = path.join(os.tmpdir(), path.basename(filePath));
+      const fallbackPath = path.join(os.tmpdir(), 'class-test-portal', path.basename(filePath));
+      const fbDir = path.dirname(fallbackPath);
+      if (!fs.existsSync(fbDir)) fs.mkdirSync(fbDir, { recursive: true });
       await fs.promises.writeFile(fallbackPath, content, 'utf-8');
     } catch (e) {}
   }
@@ -159,14 +197,20 @@ async function safeRead(filePath, fallbackData) {
       const content = await fs.promises.readFile(filePath, 'utf-8');
       return JSON.parse(content);
     }
-    const fallbackPath = path.join(os.tmpdir(), path.basename(filePath));
+    const fallbackPath = path.join(os.tmpdir(), 'class-test-portal', path.basename(filePath));
     if (fs.existsSync(fallbackPath)) {
       const content = await fs.promises.readFile(fallbackPath, 'utf-8');
+      return JSON.parse(content);
+    }
+    const bundledPath = path.join(__dirname, path.basename(filePath));
+    if (fs.existsSync(bundledPath)) {
+      const content = await fs.promises.readFile(bundledPath, 'utf-8');
       return JSON.parse(content);
     }
   } catch (e) {}
   return fallbackData;
 }
+
 
 // Helpers for persistent multi-test store
 async function getTestsStore() {
