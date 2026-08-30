@@ -743,9 +743,9 @@ app.post('/api/run-code', async (req, res) => {
   }
 });
 
-// Admin Authentication Endpoint
-app.post('/api/verify-admin', (req, res) => {
-  const { password } = req.body;
+// Admin Authentication Endpoint (supports POST & GET)
+app.all('/api/verify-admin', (req, res) => {
+  const password = req.body?.password || req.query?.password;
   console.log('Admin login attempt received');
   if (!password) {
     console.warn('Admin login failed: No password provided');
