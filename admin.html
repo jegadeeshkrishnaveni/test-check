@@ -714,12 +714,36 @@ function saveLocalVault(vault) {
   } catch (e) {}
 }
 
+async function safeFetchJson(res) {
+  try {
+    const text = await res.text();
+    if (!text || !text.trim()) {
+      if (!res.ok) {
+        return { error: `Server returned HTTP ${res.status} (${res.statusText || 'Error'})` };
+      }
+      return {};
+    }
+    return JSON.parse(text);
+  } catch (err) {
+    return { error: 'Failed to parse response: ' + err.message };
+  }
+}
+
 // 1. Fetch Questions from Server API
 async function loadQuestions(testIdToLoad) {
   try {
     const url = testIdToLoad ? `/api/questions?testId=${encodeURIComponent(testIdToLoad)}` : '/api/questions';
     const res = await fetch(url);
-    QUESTIONS = await res.json();
+    const data = await safeFetchJson(res);
+    if (data && (data.examTitle || data.mcq || data.programs)) {
+      QUESTIONS = data;
+    } else {
+      // Fallback from local vault
+      const vault = getLocalVault();
+      if (testIdToLoad && vault[testIdToLoad]) {
+        QUESTIONS = vault[testIdToLoad];
+      }
+    }
     if (testIdToLoad) currentTestId = testIdToLoad;
 
     // Cache to local vault
@@ -741,7 +765,7 @@ async function loadQuestions(testIdToLoad) {
 async function loadTestsList() {
   try {
     const res = await fetch('/api/tests');
-    const data = await res.json();
+    const data = await safeFetchJson(res);
     availableTests = data.tests || [];
     
     // Check if local storage has any tests missing from the server (e.g. from previous session)
@@ -765,11 +789,11 @@ async function loadTestsList() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tests: missingTests })
         });
-        const restoreData = await restoreRes.json();
+        const restoreData = await safeFetchJson(restoreRes);
         if (restoreData.success) {
           // Re-fetch tests list
           const refetchRes = await fetch('/api/tests');
-          const refetchData = await refetchRes.json();
+          const refetchData = await safeFetchJson(refetchRes);
           availableTests = refetchData.tests || [];
           showAppToast(`Seamlessly restored ${restoreData.restoredCount} saved test(s) from browser storage!`, 'success');
         }
@@ -952,7 +976,7 @@ document.getElementById('adminLoginBtn').addEventListener('click', async () => {
       body: JSON.stringify({ password: entered })
     });
     
-    const data = await response.json();
+    const data = await safeFetchJson(response);
     
     if (data.success) {
       console.log('✅ Admin login successful');
@@ -978,8 +1002,8 @@ document.getElementById('adminLoginBtn').addEventListener('click', async () => {
         document.getElementById('loginScreen').classList.remove('hidden');
       }
     } else {
-      console.error('❌ Invalid password:', data.message);
-      errEl.textContent = `❌ ${data.message || 'Incorrect admin password. Please try again.'}`;
+      console.error('❌ Invalid password:', data.message || data.error);
+      errEl.textContent = `❌ ${data.message || data.error || 'Incorrect admin password. Please try again.'}`;
       errEl.style.display = 'block';
       document.getElementById('adminPass').value = '';
     }
@@ -1060,7 +1084,8 @@ document.getElementById('refreshBtn').addEventListener('click', loadResults);
 async function loadResults() {
   try {
     const res = await fetch('/api/submissions');
-    rawSubmissions = await res.json();
+    const data = await safeFetchJson(res);
+    rawSubmissions = (data && typeof data === 'object' && !data.error) ? data : {};
     rows = [];
     Object.keys(rawSubmissions).forEach(roll => {
       const v = rawSubmissions[roll];
@@ -2182,7 +2207,7 @@ document.getElementById('saveQuestionsBtn').addEventListener('click', async () =
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    const result = await res.json();
+    const result = await safeFetchJson(res);
 
     if (result.success) {
       saveAlert.innerHTML = `<div style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:10px 16px;border-radius:8px;font-weight:600;">✓ Exam saved successfully! ${result.githubSynced ? 'Also synced to your GitHub repo!' : ''}</div>`;
@@ -2205,12 +2230,12 @@ async function toggleTestActive(id, newActiveState) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, isActive: newActiveState })
     });
-    const data = await res.json();
+    const data = await safeFetchJson(res);
     if (data.success) {
       await loadTestsList();
-      showAppToast(data.message, data.isActive ? 'success' : 'info');
+      showAppToast(data.message || 'Status updated', data.isActive ? 'success' : 'info');
     } else {
-      showAppToast(`Error updating test status: ${data.error}`, 'error');
+      showAppToast(`Error updating test status: ${data.error || 'Unknown error'}`, 'error');
     }
   } catch (err) {
     showAppToast(`Failed to update test: ${err.message}`, 'error');
@@ -2225,7 +2250,7 @@ async function switchActiveTest(selectedId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: selectedId })
     });
-    const data = await res.json();
+    const data = await safeFetchJson(res);
     if (data.success) {
       currentTestId = selectedId;
       await loadQuestions(selectedId);
@@ -2233,7 +2258,7 @@ async function switchActiveTest(selectedId) {
       loadResults();
       showAppToast(`Switched active exam to "${data.data?.examTitle || selectedId}".`, 'success');
     } else {
-      showAppToast(`Error switching test: ${data.error}`, 'error');
+      showAppToast(`Error switching test: ${data.error || 'Unknown error'}`, 'error');
     }
   } catch (err) {
     showAppToast(`Failed to switch test: ${err.message}`, 'error');
@@ -2247,12 +2272,12 @@ async function duplicateTest(id) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id })
     });
-    const data = await res.json();
+    const data = await safeFetchJson(res);
     if (data.success) {
       await loadTestsList();
-      showAppToast(`Duplicated exam as "${data.title}".`, 'success');
+      showAppToast(`Duplicated exam as "${data.title || 'Copy'}".`, 'success');
     } else {
-      showAppToast(`Error duplicating test: ${data.error}`, 'error');
+      showAppToast(`Error duplicating test: ${data.error || 'Unknown error'}`, 'error');
     }
   } catch (err) {
     showAppToast(`Failed to duplicate test: ${err.message}`, 'error');
@@ -2280,7 +2305,7 @@ async function deleteTestById(id) {
 
   try {
     const res = await fetch(`/api/tests/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    const data = await res.json();
+    const data = await safeFetchJson(res);
     if (data.success) {
       // Remove from browser storage vault
       try {
@@ -2300,7 +2325,7 @@ async function deleteTestById(id) {
       }
       showAppToast(`Deleted exam "${testName}".`, 'success');
     } else {
-      showAppToast(`Error deleting test: ${data.error}`, 'error');
+      showAppToast(`Error deleting test: ${data.error || 'Unknown error'}`, 'error');
     }
   } catch (err) {
     showAppToast(`Failed to delete test: ${err.message}`, 'error');
@@ -2312,7 +2337,7 @@ if (document.getElementById('backupAllTestsBtn')) {
   document.getElementById('backupAllTestsBtn').addEventListener('click', async () => {
     try {
       const res = await fetch('/api/tests/export-bundle');
-      const data = await res.json();
+      const data = await safeFetchJson(res);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -2358,7 +2383,7 @@ if (document.getElementById('importTestsFileInput')) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tests: payloadTests })
       });
-      const data = await res.json();
+      const data = await safeFetchJson(res);
       if (data.success) {
         // Also update local storage
         const vault = getLocalVault();
@@ -2424,6 +2449,7 @@ document.getElementById('confirmCreateTestBtn').addEventListener('click', async 
   const password = document.getElementById('newTestPassword').value.trim() || 'test-2026';
   const template = document.getElementById('newTestTemplate').value;
   const errEl = document.getElementById('createTestError');
+  const btn = document.getElementById('confirmCreateTestBtn');
 
   if (!title) {
     errEl.textContent = 'Please enter a test title.';
@@ -2431,27 +2457,79 @@ document.getElementById('confirmCreateTestBtn').addEventListener('click', async 
   }
 
   errEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
 
   try {
-    const res = await fetch('/api/tests/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, durationMinutes, password, template })
-    });
-    const data = await res.json();
+    let testData = null;
+    let testId = null;
 
-    if (data.success) {
-      currentTestId = data.testId;
-      document.getElementById('createTestModal').classList.add('hidden');
-      await loadQuestions(data.testId);
-      setActiveTab('tabQuestionsBtn', 'questionsView');
-      renderQuestionManager();
-      showAppToast(`Created and opened "${title}".`, 'success');
-    } else {
-      errEl.textContent = data.error || 'Failed to create test.';
+    try {
+      const res = await fetch('/api/tests/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, durationMinutes, password, template })
+      });
+      const data = await safeFetchJson(res);
+      if (data && data.success && data.testId) {
+        testId = data.testId;
+        testData = data.testData;
+      }
+    } catch (apiErr) {
+      console.warn('Server test creation fallback:', apiErr);
     }
+
+    // Client-side fallback if server fails
+    if (!testId) {
+      testId = 'test_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+      testData = {
+        examTitle: title,
+        durationMinutes,
+        studentPassword: password,
+        isActive: true,
+        mcq: template === 'empty' ? [] : [
+          {
+            id: 'm_' + Date.now(),
+            question: 'Which data structure follows the Last In First Out (LIFO) principle?',
+            options: ['Queue', 'Stack', 'Array', 'Linked List'],
+            answer: 1,
+            marks: 1
+          }
+        ],
+        programs: template === 'empty' ? [] : [
+          {
+            id: 'p_' + Date.now(),
+            title: 'Sum of Two Numbers',
+            statement: 'Read two space-separated integers a and b from standard input and print their sum to standard output.',
+            marks: 5,
+            testCases: [
+              { input: '2 3', expectedOutput: '5', isSample: true },
+              { input: '10 -4', expectedOutput: '6', isSample: true },
+              { input: '100 250', expectedOutput: '350', isSample: false }
+            ]
+          }
+        ],
+        createdAt: new Date().toISOString()
+      };
+    }
+
+    // Save to local vault and update state
+    const vault = getLocalVault();
+    vault[testId] = testData;
+    saveLocalVault(vault);
+
+    currentTestId = testId;
+    QUESTIONS = testData;
+    document.getElementById('createTestModal').classList.add('hidden');
+    await loadTestsList();
+    setActiveTab('tabQuestionsBtn', 'questionsView');
+    renderQuestionManager();
+    showAppToast(`Created and opened "${title}".`, 'success');
   } catch (err) {
     errEl.textContent = 'Error: ' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create & Open Test';
   }
 });
 
