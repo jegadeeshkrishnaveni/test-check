@@ -1009,6 +1009,12 @@ document.getElementById('adminLoginBtn').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('adminPass').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    document.getElementById('adminLoginBtn').click();
+  }
+});
+
 document.getElementById('logoutBtn').addEventListener('click', () => {
   console.log('👋 Admin logout');
   document.getElementById('dashboard').classList.add('hidden');
