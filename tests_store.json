@@ -184,9 +184,59 @@
         }
       ],
       "createdAt": "2026-08-30T06:46:44.043Z"
+    },
+    "test_2026": {
+      "examTitle": "Test 2026",
+      "durationMinutes": 90,
+      "studentPassword": "test 6 this",
+      "isActive": true,
+      "mcq": [
+        {
+          "id": "m_test2026_1",
+          "question": "Which data structure follows the Last In First Out (LIFO) principle?",
+          "options": [
+            "Queue",
+            "Stack",
+            "Array",
+            "Linked List"
+          ],
+          "answer": 1,
+          "marks": 1
+        }
+      ],
+      "programs": [
+        {
+          "id": "p_test2026_1",
+          "title": "Sum of Two Numbers",
+          "statement": "Read two space-separated integers a and b from standard input and print their sum to standard output.",
+          "marks": 5,
+          "testCases": [
+            {
+              "input": "2 3",
+              "expectedOutput": "5",
+              "isSample": true
+            },
+            {
+              "input": "10 -4",
+              "expectedOutput": "6",
+              "isSample": true
+            },
+            {
+              "input": "100 250",
+              "expectedOutput": "350",
+              "isSample": false
+            }
+          ]
+        }
+      ],
+      "createdAt": "2026-08-30T09:00:00.000Z"
     }
   },
   "activeTestIds": [
-    "default"
+    "default",
+    "test_2026",
+    "test_mtffjlca_ddgv",
+    "test_mtffms31_vat8",
+    "test_mtfg54y3_w0zj"
   ]
 }

@@ -711,20 +711,34 @@ function showConfirmModal({ title = 'Confirm Action', message = 'Are you sure?',
 }
 
 // =========================================================================
-// LOCAL STORAGE VAULT SYNC (PROTECTS AGAINST DISAPPEARING TESTS)
+// SERVER-AUTHORITATIVE TEST STORE & SYNC (PERMANENT STORAGE)
 // =========================================================================
-function getLocalVault() {
-  try {
-    return JSON.parse(localStorage.getItem('class_test_portal_tests_vault') || '{}');
-  } catch (e) {
-    return {};
-  }
-}
+let autoSaveTimer = null;
 
-function saveLocalVault(vault) {
-  try {
-    localStorage.setItem('class_test_portal_tests_vault', JSON.stringify(vault));
-  } catch (e) {}
+function triggerAutoSave() {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(async () => {
+    try {
+      syncQuestionInputsToState();
+      if (!QUESTIONS || !currentTestId) return;
+      const payload = {
+        ...QUESTIONS,
+        testId: currentTestId || 'default'
+      };
+      await fetch('/api/save-questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const saveStatusBadge = document.getElementById('adminSaveStatusBadge');
+      if (saveStatusBadge) {
+        saveStatusBadge.textContent = '✓ Saved to Server';
+        saveStatusBadge.style.color = '#16a34a';
+      }
+    } catch (e) {
+      console.warn('Background autosave notice:', e);
+    }
+  }, 600);
 }
 
 async function safeFetchJson(res) {
@@ -745,79 +759,31 @@ async function safeFetchJson(res) {
 // 1. Fetch Questions from Server API
 async function loadQuestions(testIdToLoad) {
   try {
-    const targetId = testIdToLoad || currentTestId;
+    const targetId = testIdToLoad || currentTestId || 'default';
     const url = targetId ? `/api/questions?testId=${encodeURIComponent(targetId)}` : '/api/questions';
     const res = await fetch(url);
     const data = await safeFetchJson(res);
     if (data && (data.examTitle || data.mcq || data.programs)) {
       QUESTIONS = data;
-      if (data.testId) currentTestId = data.testId;
-      else if (targetId) currentTestId = targetId;
-    } else {
-      // Fallback from local vault
-      const vault = getLocalVault();
-      if (targetId && vault[targetId]) {
-        QUESTIONS = vault[targetId];
-        currentTestId = targetId;
-      }
+      currentTestId = data.testId || targetId;
     }
     if (testIdToLoad) currentTestId = testIdToLoad;
 
-    // Cache to local vault
-    if (QUESTIONS && currentTestId) {
-      const vault = getLocalVault();
-      vault[currentTestId] = QUESTIONS;
-      saveLocalVault(vault);
-    }
-
     await loadTestsList();
+    renderQuestionManager();
     return QUESTIONS;
   } catch (err) {
-    console.error('Failed to load questions:', err);
+    console.error('Failed to load questions from server:', err);
     return null;
   }
 }
 
-// Load list of available tests and render Test Library & Dropdowns
+// Load list of available tests from server and render Test Library & Dropdowns
 async function loadTestsList() {
   try {
     const res = await fetch('/api/tests');
     const data = await safeFetchJson(res);
     availableTests = data.tests || [];
-    
-    // Check if local storage has any tests missing from the server (e.g. from previous session)
-    const localVault = getLocalVault();
-    const serverIds = new Set(availableTests.map(t => t.id));
-    const missingTests = {};
-    let hasMissing = false;
-
-    for (const [vId, vData] of Object.entries(localVault)) {
-      if (!serverIds.has(vId) && vData && (vData.examTitle || vData.mcq || vData.programs)) {
-        missingTests[vId] = vData;
-        hasMissing = true;
-      }
-    }
-
-    // Auto-restore any missing tests to the server
-    if (hasMissing) {
-      try {
-        const restoreRes = await fetch('/api/tests/restore', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tests: missingTests })
-        });
-        const restoreData = await safeFetchJson(restoreRes);
-        if (restoreData.success) {
-          // Re-fetch tests list
-          const refetchRes = await fetch('/api/tests');
-          const refetchData = await safeFetchJson(refetchRes);
-          availableTests = refetchData.tests || [];
-          showAppToast(`Seamlessly restored ${restoreData.restoredCount} saved test(s) from browser storage!`, 'success');
-        }
-      } catch (e) {
-        console.warn('Auto-restore failed:', e);
-      }
-    }
 
     // Update banner status
     const banner = document.getElementById('testVaultStatusBanner');
@@ -845,7 +811,7 @@ async function loadTestsList() {
         const opt = document.createElement('option');
         opt.value = t.id;
         opt.textContent = `${t.title} ${t.isActive ? '🟢 [Active]' : '⚪ [Hidden]'}`;
-        if (t.id === currentTestId || (t.isActive && !currentTestId)) {
+        if (t.id === currentTestId || (!currentTestId && t.isActive)) {
           opt.selected = true;
           currentTestId = t.id;
         }
@@ -1033,14 +999,9 @@ window.handleAdminLogin = async function() {
       if (loginScreen) loginScreen.classList.add('hidden');
       if (dashboard) dashboard.classList.remove('hidden');
       
-      // Load dashboard data in background
-      loadQuestions().catch(e => console.warn('Questions load:', e));
-      loadResults().catch(e => console.warn('Results load:', e));
-      try {
-        renderQuestionManager();
-      } catch (innerErr) {
-        console.warn('Render question manager:', innerErr);
-      }
+      // Load dashboard data directly from server
+      await loadQuestions();
+      await loadResults();
     } else {
       if (errEl) {
         errEl.textContent = `❌ ${authMessage || 'Incorrect admin password. Please try again.'}`;
@@ -2198,6 +2159,20 @@ function wireQuestionEvents() {
       }
     });
   });
+
+  // Attach live input & change listeners for instant permanent background save
+  ['cfgExamTitle', 'cfgDuration', 'cfgPassword'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.oninput = triggerAutoSave;
+      el.onchange = triggerAutoSave;
+    }
+  });
+
+  document.querySelectorAll('.mcq-question-input, .mcq-marks-input, .mcq-opt-val, .mcq-correct-radio, .prog-title-input, .prog-marks-input, .prog-statement-input, .tc-input-val, .tc-output-val, .tc-is-sample').forEach(el => {
+    el.oninput = triggerAutoSave;
+    el.onchange = triggerAutoSave;
+  });
 }
 
 document.getElementById('addMcqQuestionBtn').addEventListener('click', () => {
@@ -2239,7 +2214,7 @@ document.getElementById('addProgQuestionBtn').addEventListener('click', () => {
 document.getElementById('saveQuestionsBtn').addEventListener('click', async () => {
   syncQuestionInputsToState();
   const saveAlert = document.getElementById('saveAlert');
-  saveAlert.innerHTML = `<div style="background:#eff6ff;color:#1e40af;padding:10px 16px;border-radius:8px;font-weight:600;">💾 Saving exam questions to portal...</div>`;
+  saveAlert.innerHTML = `<div style="background:#eff6ff;color:#1e40af;padding:10px 16px;border-radius:8px;font-weight:600;">💾 Saving exam permanently to server...</div>`;
 
   try {
     const payload = {
@@ -2254,12 +2229,8 @@ document.getElementById('saveQuestionsBtn').addEventListener('click', async () =
     const result = await safeFetchJson(res);
 
     if (result.success) {
-      // Sync local storage immediately
-      const vault = getLocalVault();
-      vault[currentTestId || 'default'] = JSON.parse(JSON.stringify(payload));
-      saveLocalVault(vault);
-
-      saveAlert.innerHTML = `<div style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:10px 16px;border-radius:8px;font-weight:600;">✓ Exam "${QUESTIONS.examTitle || 'Test'}" saved successfully!</div>`;
+      saveAlert.innerHTML = `<div style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:10px 16px;border-radius:8px;font-weight:600;">✓ Exam "${QUESTIONS.examTitle || 'Test'}" saved permanently!</div>`;
+      showAppToast(`Saved "${QUESTIONS.examTitle || 'Exam'}" to server disk`, 'success');
       await loadTestsList();
     } else {
       saveAlert.innerHTML = `<div style="background:#fef2f2;color:#dc2626;padding:10px 16px;border-radius:8px;font-weight:600;">⚠️ ${result.error || 'Failed to save.'}</div>`;
@@ -2434,10 +2405,6 @@ if (document.getElementById('importTestsFileInput')) {
       });
       const data = await safeFetchJson(res);
       if (data.success) {
-        // Also update local storage
-        const vault = getLocalVault();
-        Object.assign(vault, payloadTests);
-        saveLocalVault(vault);
         await loadTestsList();
         showAppToast(`Imported ${data.restoredCount} test(s) successfully!`, 'success');
       } else {
@@ -2454,9 +2421,9 @@ if (document.getElementById('importTestsFileInput')) {
 // Sync Browser Cache
 if (document.getElementById('syncLocalCacheBtn')) {
   document.getElementById('syncLocalCacheBtn').addEventListener('click', async () => {
-    showAppToast('Syncing all tests with browser storage & server...', 'info');
+    showAppToast('Syncing all tests with server...', 'info');
     await loadTestsList();
-    showAppToast('Sync complete! All exams are up to date.', 'success');
+    showAppToast('Sync complete! All exams are up to date from server.', 'success');
   });
 }
 
@@ -2521,70 +2488,23 @@ document.getElementById('confirmCreateTestBtn').addEventListener('click', async 
   btn.textContent = 'Creating...';
 
   try {
-    let testData = null;
-    let testId = null;
-
-    try {
-      const res = await fetch('/api/tests/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, durationMinutes, password, template })
-      });
-      const data = await safeFetchJson(res);
-      if (data && data.success && data.testId) {
-        testId = data.testId;
-        testData = data.testData;
-      }
-    } catch (apiErr) {
-      console.warn('Server test creation fallback:', apiErr);
+    const res = await fetch('/api/tests/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, durationMinutes, password, template })
+    });
+    const data = await safeFetchJson(res);
+    if (data && data.success && data.testId) {
+      currentTestId = data.testId;
+      QUESTIONS = data.testData;
+      document.getElementById('createTestModal').classList.add('hidden');
+      await loadTestsList();
+      setActiveTab('tabQuestionsBtn', 'questionsView');
+      renderQuestionManager();
+      showAppToast(`Created and saved "${title}" permanently to server disk.`, 'success');
+    } else {
+      errEl.textContent = 'Failed to create test on server: ' + (data?.error || 'Unknown error');
     }
-
-    // Client-side fallback if server fails
-    if (!testId) {
-      testId = 'test_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
-      testData = {
-        examTitle: title,
-        durationMinutes,
-        studentPassword: password,
-        isActive: true,
-        mcq: template === 'empty' ? [] : [
-          {
-            id: 'm_' + Date.now(),
-            question: 'Which data structure follows the Last In First Out (LIFO) principle?',
-            options: ['Queue', 'Stack', 'Array', 'Linked List'],
-            answer: 1,
-            marks: 1
-          }
-        ],
-        programs: template === 'empty' ? [] : [
-          {
-            id: 'p_' + Date.now(),
-            title: 'Sum of Two Numbers',
-            statement: 'Read two space-separated integers a and b from standard input and print their sum to standard output.',
-            marks: 5,
-            testCases: [
-              { input: '2 3', expectedOutput: '5', isSample: true },
-              { input: '10 -4', expectedOutput: '6', isSample: true },
-              { input: '100 250', expectedOutput: '350', isSample: false }
-            ]
-          }
-        ],
-        createdAt: new Date().toISOString()
-      };
-    }
-
-    // Save to local vault and update state
-    const vault = getLocalVault();
-    vault[testId] = testData;
-    saveLocalVault(vault);
-
-    currentTestId = testId;
-    QUESTIONS = testData;
-    document.getElementById('createTestModal').classList.add('hidden');
-    await loadTestsList();
-    setActiveTab('tabQuestionsBtn', 'questionsView');
-    renderQuestionManager();
-    showAppToast(`Created and opened "${title}".`, 'success');
   } catch (err) {
     errEl.textContent = 'Error: ' + err.message;
   } finally {

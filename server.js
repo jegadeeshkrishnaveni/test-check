@@ -171,8 +171,32 @@ async function safeRead(filePath, fallbackData) {
 // Helpers for persistent multi-test store
 async function getTestsStore() {
   try {
-    const data = await safeRead(TESTS_STORE_FILE, null);
-    if (data && data.tests && Object.keys(data.tests).length > 0) {
+    let data = await safeRead(TESTS_STORE_FILE, null);
+    if (!data || !data.tests || Object.keys(data.tests).length === 0) {
+      data = await safeRead(path.join(BASE_DATA_DIR, 'tests_store.json'), null);
+    }
+    if (!data) data = { activeTestId: 'default', activeTestIds: ['default'], tests: {} };
+    if (!data.tests) data.tests = {};
+
+    // Scan TESTS_DIR to ensure any disk test file is included
+    try {
+      if (fs.existsSync(TESTS_DIR)) {
+        const files = await fs.promises.readdir(TESTS_DIR);
+        for (const f of files) {
+          if (f.endsWith('.json')) {
+            const id = f.replace('.json', '');
+            if (!data.tests[id]) {
+              const fileContent = await safeRead(path.join(TESTS_DIR, f), null);
+              if (fileContent && (fileContent.examTitle || fileContent.mcq || fileContent.programs)) {
+                data.tests[id] = fileContent;
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
+    if (data.tests && Object.keys(data.tests).length > 0) {
       memoryCache.testsStore = data;
       return data;
     }
@@ -182,7 +206,18 @@ async function getTestsStore() {
 
 async function saveTestsStore(store) {
   memoryCache.testsStore = store;
-  await safeWrite(TESTS_STORE_FILE, JSON.stringify(store, null, 2));
+  const jsonStr = JSON.stringify(store, null, 2);
+  await safeWrite(TESTS_STORE_FILE, jsonStr);
+  await safeWrite(path.join(BASE_DATA_DIR, 'tests_store.json'), jsonStr);
+
+  // Write all test files to disk
+  if (store.tests) {
+    for (const [tId, tData] of Object.entries(store.tests)) {
+      if (tData) {
+        await safeWrite(path.join(TESTS_DIR, `${tId}.json`), JSON.stringify(tData, null, 2));
+      }
+    }
+  }
 }
 
 // Initial bootstrap and sync
@@ -193,7 +228,6 @@ async function ensureDefaultTestExists() {
 
     // Only bootstrap default test if store has no tests at all
     if (Object.keys(store.tests).length === 0) {
-      // Try reading bundled questions.json if present
       let initialData = DEFAULT_TEST_DATA;
       if (fs.existsSync(QUESTIONS_FILE)) {
         try {
@@ -210,8 +244,8 @@ async function ensureDefaultTestExists() {
       memoryCache.questions = initialData;
       await saveTestsStore(store);
     } else {
-      if (!store.activeTestId) {
-        store.activeTestId = Object.keys(store.tests)[0];
+      if (!store.activeTestId || !store.tests[store.activeTestId]) {
+        store.activeTestId = Object.keys(store.tests)[0] || 'default';
       }
       if (!Array.isArray(store.activeTestIds) || store.activeTestIds.length === 0) {
         store.activeTestIds = [store.activeTestId];
@@ -223,11 +257,34 @@ async function ensureDefaultTestExists() {
 }
 ensureDefaultTestExists().catch(() => {});
 
-// Submissions helpers
+// Submissions helpers - permanent persistence across data/ and root directories
 async function getSubmissions() {
   try {
-    const data = await safeRead(SUBMISSIONS_FILE, null);
-    if (data) {
+    let data = await safeRead(SUBMISSIONS_FILE, null);
+    if (!data) {
+      data = await safeRead(path.join(__dirname, 'submissions.json'), null);
+    }
+    if (!data) data = {};
+
+    // Merge individual student files from STUDENTS_DIR
+    try {
+      if (fs.existsSync(STUDENTS_DIR)) {
+        const files = await fs.promises.readdir(STUDENTS_DIR);
+        for (const f of files) {
+          if (f.endsWith('.json')) {
+            const rollKey = f.replace('.json', '');
+            if (!data[rollKey]) {
+              const studentData = await safeRead(path.join(STUDENTS_DIR, f), null);
+              if (studentData && studentData.roll) {
+                data[rollKey] = studentData;
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
+    if (Object.keys(data).length > 0) {
       memoryCache.submissions = data;
       return data;
     }
@@ -237,7 +294,9 @@ async function getSubmissions() {
 
 async function saveSubmissions(subs) {
   memoryCache.submissions = subs;
-  await safeWrite(SUBMISSIONS_FILE, JSON.stringify(subs, null, 2));
+  const jsonStr = JSON.stringify(subs, null, 2);
+  await safeWrite(SUBMISSIONS_FILE, jsonStr);
+  await safeWrite(path.join(__dirname, 'submissions.json'), jsonStr);
 }
 
 async function getGithubConfig() {
