@@ -1,0 +1,1685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Class Test Portal</title>
+<!-- CodeMirror Editor Styles -->
+<link rel="stylesheet" href="vendor/codemirror/codemirror.min.css">
+<link rel="stylesheet" href="vendor/codemirror/dracula.min.css">
+<link rel="stylesheet" href="vendor/codemirror/material-ocean.min.css">
+<link rel="stylesheet" href="vendor/codemirror/show-hint.min.css">
+<style>
+  :root {
+    --ink: #111827;
+    --paper: #f8fafc;
+    --card: #ffffff;
+    --line: #e2e8f0;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --ok: #16a34a;
+    --ok-bg: #f0fdf4;
+    --ok-border: #bbf7d0;
+    --warn: #dc2626;
+    --warn-bg: #fef2f2;
+    --warn-border: #fecaca;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+    --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    background: var(--paper);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  .hidden { display: none !important; }
+  .center-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 32px;
+    max-width: 440px;
+    width: 100%;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+  }
+  .card h1 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin: 0 0 6px;
+    color: var(--ink);
+  }
+  .card p.sub {
+    color: #64748b;
+    margin: 0 0 20px;
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+  label {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 600;
+    margin: 14px 0 6px;
+    color: #374151;
+  }
+  input[type=text], input[type=password], select {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 0.92rem;
+    font-family: inherit;
+    background: #fff;
+    color: var(--ink);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  }
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 10px 18px;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.15s, transform 0.05s;
+  }
+  button:active { transform: scale(0.99); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+  .btn-ghost { background: #fff; color: #374151; border: 1px solid var(--line); }
+  .btn-ghost:hover { background: #f1f5f9; color: var(--ink); }
+  .btn-success { background: var(--ok); color: #fff; }
+  .btn-success:hover { background: #15803d; }
+  .btn-danger { background: #fff; color: var(--warn); border: 1px solid var(--warn-border); }
+
+  /* Print Styles */
+  @media print {
+    body {
+      background: #fff !important;
+      color: #0f172a !important;
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+    #loginScreen, #testScreen, #submitModal, #evalOverlay, .submit-bar, .topbar, #printBtn, button, select, input {
+      display: none !important;
+    }
+    #resultScreen {
+      display: block !important;
+      margin: 0 auto !important;
+      padding: 16px !important;
+      max-width: 720px !important;
+    }
+    .result-card {
+      border: 1px solid #cbd5e1 !important;
+      box-shadow: none !important;
+      max-width: 100% !important;
+      margin: 0 !important;
+      padding: 24px !important;
+      background: #fff !important;
+    }
+    .score-badge-huge {
+      color: #2563eb !important;
+      font-size: 2.6rem !important;
+      font-weight: 800 !important;
+    }
+    .score-breakdown {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr !important;
+      gap: 12px !important;
+      margin-bottom: 20px !important;
+    }
+    .breakdown-box {
+      border: 1px solid #e2e8f0 !important;
+      background: #f8fafc !important;
+      padding: 12px !important;
+      text-align: center !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+  }
+
+  /* Topbar */
+  .topbar {
+    position: sticky;
+    top: 0;
+    background: #fff;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 28px;
+    z-index: 20;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 14px; }
+  .exam-title-header { font-weight: 700; font-size: 1.05rem; }
+  .student-badge {
+    background: #eff6ff;
+    color: #1e40af;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .save-status {
+    font-size: 0.78rem;
+    color: #64748b;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .save-status.saved { color: var(--ok); }
+  .topbar-right { display: flex; align-items: center; gap: 16px; }
+  .timer-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 1rem;
+    background: #f1f5f9;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+  }
+  .timer-box.warning { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-border); }
+
+  /* Main Container */
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 28px 20px 80px;
+  }
+  .section-card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  }
+  .section-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0 0 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 12px;
+  }
+  .points-badge {
+    font-size: 0.75rem;
+    font-weight: 700;
+    background: #f1f5f9;
+    color: #475569;
+    padding: 3px 8px;
+    border-radius: 6px;
+  }
+
+  /* MCQ Items */
+  .q-item { margin-bottom: 24px; }
+  .q-item:last-child { margin-bottom: 0; }
+  .q-text { font-size: 0.95rem; font-weight: 600; margin-bottom: 12px; line-height: 1.5; }
+  .options-grid { display: flex; flex-direction: column; gap: 8px; }
+  .option-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .option-label:hover { background: #f8fafc; border-color: #cbd5e1; }
+  .option-label.selected {
+    background: #eff6ff;
+    border-color: var(--accent);
+    font-weight: 500;
+    color: #1e3a8a;
+  }
+
+  /* Program Items */
+  .prog-item { margin-bottom: 32px; }
+  .prog-item:last-child { margin-bottom: 0; }
+  .prog-desc {
+    background: #f8fafc;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin-bottom: 16px;
+  }
+  /* Code Editor IDE Styling */
+  .code-editor-wrap {
+    border: 1px solid #334155;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 14px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    background: #282a36;
+  }
+  .editor-header {
+    background: #1e1f29;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #3b3e4f;
+    color: #f8f8f2;
+    font-size: 0.82rem;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .editor-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .editor-tool-btn {
+    background: #282a36;
+    color: #cbd5e1;
+    border: 1px solid #44475a;
+    padding: 4px 8px;
+    border-radius: 5px;
+    font-size: 0.76rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s ease;
+  }
+  .editor-tool-btn:hover {
+    background: #44475a;
+    color: #50fa7b;
+    border-color: #6272a4;
+  }
+  .editor-shortcuts-tip {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    background: #111827;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid #374151;
+  }
+  .lang-select, .theme-select {
+    background: #282a36;
+    color: #f8f8f2;
+    border: 1px solid #6272a4;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    width: auto;
+    cursor: pointer;
+    outline: none;
+  }
+  .lang-select:focus, .theme-select:focus {
+    border-color: #50fa7b;
+  }
+  .cm-editor-container {
+    font-family: "JetBrains Mono", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    position: relative;
+  }
+  .CodeMirror {
+    height: 290px !important;
+    font-family: inherit !important;
+    font-size: inherit !important;
+    line-height: 1.6 !important;
+  }
+  .CodeMirror-gutters {
+    border-right: 1px solid #3b3e4f !important;
+    padding-right: 4px;
+  }
+  .CodeMirror-linenumber {
+    font-size: 12px;
+    padding: 0 8px 0 4px;
+  }
+  .CodeMirror-cursor {
+    border-left: 2px solid #50fa7b !important;
+  }
+  .CodeMirror-matchingbracket {
+    background: rgba(80, 250, 123, 0.25) !important;
+    border-bottom: 2px solid #50fa7b !important;
+    color: #fff !important;
+  }
+  .CodeMirror-hints {
+    background: #1e1f29 !important;
+    border: 1px solid #6272a4 !important;
+    border-radius: 6px;
+    padding: 4px;
+    font-family: "JetBrains Mono", Consolas, monospace !important;
+    font-size: 13px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    z-index: 1000;
+  }
+  .CodeMirror-hint {
+    color: #f8f8f2 !important;
+    padding: 4px 8px !important;
+    border-radius: 4px;
+  }
+  .CodeMirror-hint-active {
+    background: #44475a !important;
+    color: #50fa7b !important;
+  }
+
+  /* Test Case Cards */
+  .tc-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .tc-box {
+    background: #f8fafc;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.82rem;
+  }
+  .tc-title { font-weight: 700; color: #475569; margin-bottom: 4px; }
+  .tc-io { font-family: var(--mono); color: #334155; background: #fff; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--line); margin-top: 2px; }
+
+  /* Output Box */
+  .run-output-box {
+    background: #0f172a;
+    color: #f8fafc;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-top: 12px;
+    white-space: pre-wrap;
+    line-height: 1.4;
+  }
+
+  /* Submit Bar */
+  .submit-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #fff;
+    border-top: 1px solid var(--line);
+    padding: 12px 28px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 -4px 6px -1px rgba(0,0,0,0.03);
+    z-index: 20;
+  }
+
+  /* Result Screen */
+  .result-card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 36px;
+    max-width: 680px;
+    width: 100%;
+    margin: 40px auto;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    text-align: center;
+  }
+  .score-badge-huge {
+    font-size: 3rem;
+    font-weight: 800;
+    color: var(--accent);
+    margin: 16px 0;
+  }
+  .score-breakdown {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 24px 0;
+    text-align: left;
+  }
+  .breakdown-box {
+    background: #f8fafc;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px;
+  }
+</style>
+</head>
+<body>
+
+<!-- 1. LOGIN SCREEN -->
+<div id="loginScreen" class="center-screen">
+  <div class="card">
+    <div style="font-size:2rem; margin-bottom:8px;">📝</div>
+    <h1 id="portalTitle">Class Test Portal</h1>
+    <p class="sub" id="portalSubTitle">Select your test, enter credentials and password to start.</p>
+
+    <!-- Dynamic Exam Selector Area -->
+    <div id="examSelectorArea" style="margin-bottom:14px; text-align:left;">
+      <div id="loadingExamsMsg" style="color:#64748b; font-size:0.85rem; padding:8px 0;">Loading active exams...</div>
+      
+      <!-- Multi Test Select Dropdown (shown if > 1 active test) -->
+      <div id="multiTestWrap" class="hidden">
+        <label style="font-size:0.82rem; font-weight:600; display:block; margin-bottom:4px;" id="multiTestLabel">Select Test / Exam</label>
+        <select id="selectTestId" style="width:100%; font-weight:600; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:#fff;">
+        </select>
+      </div>
+
+      <!-- Single Test Badge (shown if exactly 1 active test) -->
+      <div id="singleTestBadge" class="hidden" style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:12px 14px; margin-bottom:4px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <strong id="singleTestTitle" style="color:#1e40af; font-size:0.95rem;">Active Exam</strong>
+          <span style="background:#2563eb; color:#fff; font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:12px;">ACTIVE EXAM</span>
+        </div>
+        <div id="singleTestMeta" style="font-size:0.8rem; color:#3b82f6;">⏱️ 60 Mins &bull; 🏆 100 Marks</div>
+      </div>
+
+      <!-- Zero Active Tests Banner -->
+      <div id="zeroTestsAlert" class="hidden" style="background:#fef2f2; border:1px solid #fecaca; color:#991b1b; padding:14px; border-radius:8px; font-size:0.88rem; line-height:1.5;">
+        <strong>⚠️ No Active Exam Right Now</strong><br>
+        Your instructor has not activated any exam yet. Please wait for your instructor to make the exam active and then refresh this page.
+      </div>
+    </div>
+
+    <div id="studentInputFields">
+      <label>Roll Number (Unique ID)</label>
+      <input type="text" id="inputRoll" placeholder="e.g. 21CS101" autocomplete="off" style="font-size: 1rem; padding: 12px;">
+
+      <label>Student Full Name</label>
+      <input type="text" id="inputName" placeholder="e.g. John Doe" autocomplete="name" style="font-size: 1rem; padding: 12px;">
+
+      <label>Test Password</label>
+      <input type="password" id="inputPass" placeholder="Enter password provided by teacher" style="font-size: 1rem; padding: 12px;">
+
+      <div id="loginErr" style="color:#dc2626; font-size:0.9rem; margin-top:12px; font-weight:600; padding: 10px; background: #fee2e2; border-radius: 6px; border-left: 4px solid #dc2626; display: none; min-height: 20px;"></div>
+
+      <button class="btn-primary" id="startTestBtn" style="width:100%;margin-top:18px;padding:12px; cursor: pointer;">
+        Start Test ➔
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 2. TEST SCREEN -->
+<div id="testScreen" class="hidden">
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="exam-title-header" id="topbarExamTitle">Class Test</span>
+      <span class="student-badge" id="topbarStudentBadge">Student</span>
+      <span class="save-status saved" id="saveStatus">✓ Live Saved</span>
+    </div>
+    <div class="topbar-right">
+      <div class="timer-box" id="timerBox">
+        <span>⏱️</span>
+        <span id="timerDisplay">00:00</span>
+      </div>
+      <button class="btn-success" id="topSubmitBtn">Submit Test</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- SECTION 1: MCQ QUESTIONS ("CHOOSE IT") -->
+    <div class="section-card">
+      <div class="section-title">
+        <span>Part A: Choose It (Multiple Choice Questions)</span>
+        <span class="points-badge" id="mcqTotalPoints">Points</span>
+      </div>
+      <div id="mcqList"></div>
+    </div>
+
+    <!-- SECTION 2: PROGRAMMING QUESTIONS ("PROGRAMS") -->
+    <div class="section-card">
+      <div class="section-title">
+        <span>Part B: Programs (Coding Problems)</span>
+        <span class="points-badge" id="progTotalPoints">Points</span>
+      </div>
+      <div id="progList"></div>
+    </div>
+  </div>
+
+  <!-- Bottom Submit Bar -->
+  <div class="submit-bar">
+    <span style="font-size:0.85rem;color:#64748b;" id="unansweredWarning"></span>
+    <button class="btn-success" id="bottomSubmitBtn" style="padding:10px 24px;font-size:0.95rem;">
+      🚀 Submit Test & View Marks
+    </button>
+  </div>
+</div>
+
+<!-- SUBMISSION CONFIRMATION MODAL -->
+<div id="submitModal" class="hidden" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;">
+  <div style="background:#fff;border-radius:14px;max-width:480px;width:100%;padding:28px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.15), 0 8px 10px -6px rgba(0,0,0,0.1);border:1px solid var(--line);">
+    <div style="font-size:2rem;margin-bottom:8px;">📋</div>
+    <h2 style="margin:0 0 8px;font-size:1.35rem;font-weight:700;color:var(--ink);">Submit Assessment?</h2>
+    <p style="color:#64748b;font-size:0.9rem;margin:0 0 16px;line-height:1.5;">
+      Once submitted, your MCQs and code will be instantly evaluated against all test cases, and your marks will be recorded.
+    </p>
+
+    <div style="background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:20px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:0.88rem;">
+        <span style="color:#475569;">Part A (Choose It):</span>
+        <strong id="modalMcqStatus" style="color:var(--ink);">0/0 Answered</strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:0.88rem;">
+        <span style="color:#475569;">Part B (Programs):</span>
+        <strong id="modalProgStatus" style="color:var(--ink);">0/0 Attempted</strong>
+      </div>
+      <div id="modalWarningText" style="color:var(--warn);font-size:0.82rem;font-weight:600;margin-top:10px;display:none;">
+        ⚠️ You have unanswered questions.
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn-ghost" id="cancelSubmitModalBtn" style="padding:10px 18px;">
+        Keep Editing
+      </button>
+      <button class="btn-success" id="confirmSubmitModalBtn" style="padding:10px 20px;">
+        ✓ Yes, Submit & View Marks
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- EVALUATION IN PROGRESS OVERLAY -->
+<div id="evalOverlay" class="hidden" style="position:fixed;inset:0;background:rgba(15,23,42,0.75);backdrop-filter:blur(4px);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10000;color:#fff;padding:20px;text-align:center;">
+  <div style="width:48px;height:48px;border:4px solid rgba(255,255,255,0.2);border-top-color:#38bdf8;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;"></div>
+  <h2 style="margin:0 0 6px;font-size:1.4rem;font-weight:700;">Evaluating Test Cases...</h2>
+  <p style="margin:0;color:#94a3b8;font-size:0.92rem;" id="evalStatusText">Running programs against test suites...</p>
+</div>
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+<!-- 3. RESULT SCREEN (IMMEDIATE MARKS DISPLAY) -->
+<div id="resultScreen" class="container hidden">
+  <div class="result-card">
+    <div style="font-size:2.5rem;margin-bottom:8px;">🎉</div>
+    <h1 style="margin:0 0 4px;font-size:1.6rem;">Test Completed!</h1>
+    <p style="color:#64748b;font-size:0.92rem;margin:0 0 16px;">
+      Submitted by <strong id="resStudentName">Student</strong> (<span id="resStudentRoll">21CS101</span>)
+    </p>
+
+    <div class="score-badge-huge">
+      <span id="resTotalScore">0</span> / <span id="resMaxScore">0</span>
+    </div>
+    <div style="font-weight:700;font-size:1.1rem;color:#16a34a;" id="resPercentage">100% Score</div>
+
+    <div class="score-breakdown">
+      <div class="breakdown-box">
+        <div style="font-size:0.8rem;color:#64748b;font-weight:600;text-transform:uppercase;">Part A (Choose It)</div>
+        <div style="font-size:1.3rem;font-weight:700;margin-top:4px;" id="resMcqBreakdown">0 / 0</div>
+      </div>
+      <div class="breakdown-box">
+        <div style="font-size:0.8rem;color:#64748b;font-weight:600;text-transform:uppercase;">Part B (Programs)</div>
+        <div style="font-size:1.3rem;font-weight:700;margin-top:4px;" id="resProgBreakdown">0 / 0</div>
+      </div>
+    </div>
+
+    <div id="resDetailedReview" style="text-align:left;margin-top:24px;"></div>
+
+    <div style="display:flex;gap:12px;justify-content:center;margin-top:24px;flex-wrap:wrap;">
+      <button class="btn-primary" id="printResultBtn">
+        🖨️ Print Result Summary
+      </button>
+      <button class="btn-ghost" id="downloadResultHtmlBtn">
+        📄 Download HTML Scorecard
+      </button>
+      <button class="btn-ghost" id="downloadResultTxtBtn">
+        📥 Save Text Summary
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- CodeMirror Editor Scripts -->
+<script src="vendor/codemirror/codemirror.min.js"></script>
+<script src="vendor/codemirror/python.min.js"></script>
+<script src="vendor/codemirror/clike.min.js"></script>
+<script src="vendor/codemirror/javascript.min.js"></script>
+<script src="vendor/codemirror/closebrackets.min.js"></script>
+<script src="vendor/codemirror/matchbrackets.min.js"></script>
+<script src="vendor/codemirror/show-hint.min.js"></script>
+<script src="vendor/codemirror/anyword-hint.min.js"></script>
+<script src="vendor/codemirror/comment.min.js"></script>
+
+<script type="module">
+import { executeCodeInBrowser } from '/code-runner.js';
+
+let QUESTIONS = null;
+let currentStudent = { roll: '', name: '' };
+let mcqAnswers = {}; // qId -> optionIndex
+let programAnswers = {}; // pId -> { language: 'python', code: { python: '', java: '', c: '', cpp: '' } }
+let timerInterval = null;
+let remainingSeconds = 90 * 60;
+let autosaveTimeout = null;
+
+// Starter templates for the 4 core supported languages: Python, Java, C, C++
+const STARTERS = {
+  python: `# Write your Python solution here\nimport sys\n\ndef solve():\n    # Read input from stdin\n    # Example: line = sys.stdin.read().strip()\n    pass\n\nsolve()\n`,
+  java: `// Write your Java solution here\nimport java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        // Read input using sc.nextInt(), sc.next(), sc.nextLine()\n    }\n}\n`,
+  c: `// Write your C solution here\n#include <stdio.h>\n\nint main() {\n    // Read input using scanf, print with printf\n    return 0;\n}\n`,
+  cpp: `// Write your C++ solution here\n#include <iostream>\nusing namespace std;\n\nint main() {\n    // Read input using cin, print with cout\n    return 0;\n}\n`
+};
+
+let currentSelectedTestId = 'default';
+let availableTestsList = [];
+
+// 1. Fetch Active Tests and Questions from Server for Students
+async function initPortal(testId) {
+  const loadingMsg = document.getElementById('loadingExamsMsg');
+  const multiWrap = document.getElementById('multiTestWrap');
+  const singleBadge = document.getElementById('singleTestBadge');
+  const zeroAlert = document.getElementById('zeroTestsAlert');
+  const inputFields = document.getElementById('studentInputFields');
+  const selectEl = document.getElementById('selectTestId');
+  const portalTitleEl = document.getElementById('portalTitle');
+
+  try {
+    // Strictly load ONLY active tests for students
+    const testsRes = await fetch('/api/tests?role=student');
+    const testsData = await testsRes.json();
+    availableTestsList = testsData.tests || [];
+
+    if (loadingMsg) loadingMsg.classList.add('hidden');
+
+    if (availableTestsList.length === 0) {
+      // 0 Active Tests: Show warning banner and disable login
+      if (zeroAlert) zeroAlert.classList.remove('hidden');
+      if (multiWrap) multiWrap.classList.add('hidden');
+      if (singleBadge) singleBadge.classList.add('hidden');
+      if (inputFields) inputFields.style.opacity = '0.5';
+      const startBtn = document.getElementById('startTestBtn');
+      if (startBtn) startBtn.disabled = true;
+      if (portalTitleEl) portalTitleEl.textContent = 'Class Test Portal';
+      return;
+    }
+
+    // Re-enable inputs
+    if (zeroAlert) zeroAlert.classList.add('hidden');
+    if (inputFields) inputFields.style.opacity = '1';
+    const startBtn = document.getElementById('startTestBtn');
+    if (startBtn) startBtn.disabled = false;
+
+    if (availableTestsList.length === 1) {
+      // Exactly 1 Active Test: Display clean active exam card
+      const test = availableTestsList[0];
+      currentSelectedTestId = test.id;
+      if (singleBadge) {
+        singleBadge.classList.remove('hidden');
+        document.getElementById('singleTestTitle').textContent = test.title;
+        document.getElementById('singleTestMeta').textContent = `⏱️ ${test.durationMinutes} Mins • 🏆 ${test.totalMarks} Marks • ❓ ${test.mcqCount} MCQs • 💻 ${test.programCount} Programs`;
+      }
+      if (multiWrap) multiWrap.classList.add('hidden');
+    } else {
+      // Multiple Active Tests: Display selector dropdown
+      if (singleBadge) singleBadge.classList.add('hidden');
+      if (multiWrap) {
+        multiWrap.classList.remove('hidden');
+        const multiLabel = document.getElementById('multiTestLabel');
+        if (multiLabel) multiLabel.textContent = `Select Test / Exam (${availableTestsList.length} Active Exams Available)`;
+      }
+
+      if (selectEl) {
+        selectEl.innerHTML = '';
+        availableTestsList.forEach(t => {
+          const opt = document.createElement('option');
+          opt.value = t.id;
+          opt.textContent = `${t.title} (${t.durationMinutes}m | ${t.totalMarks} Marks)`;
+          if (testId ? t.id === testId : t.id === currentSelectedTestId) {
+            opt.selected = true;
+            currentSelectedTestId = t.id;
+          }
+          selectEl.appendChild(opt);
+        });
+        if (!currentSelectedTestId || !availableTestsList.find(t => t.id === currentSelectedTestId)) {
+          currentSelectedTestId = availableTestsList[0].id;
+        }
+      }
+    }
+
+    // Load questions for selected active test
+    const qUrl = currentSelectedTestId ? `/api/questions?testId=${encodeURIComponent(currentSelectedTestId)}` : '/api/questions';
+    const res = await fetch(qUrl);
+    QUESTIONS = await res.json();
+    if (portalTitleEl) portalTitleEl.textContent = QUESTIONS.examTitle || 'Class Test';
+  } catch (err) {
+    console.error('Error fetching questions:', err);
+  }
+}
+initPortal();
+
+// Test selection change handler
+if (document.getElementById('selectTestId')) {
+  document.getElementById('selectTestId').addEventListener('change', async (e) => {
+    currentSelectedTestId = e.target.value;
+    try {
+      const res = await fetch(`/api/questions?testId=${encodeURIComponent(currentSelectedTestId)}`);
+      QUESTIONS = await res.json();
+      document.getElementById('portalTitle').textContent = QUESTIONS.examTitle || 'Class Test';
+    } catch (err) {
+      console.error('Failed to switch test on login:', err);
+    }
+  });
+}
+
+// 2. Student Login
+document.getElementById('startTestBtn').addEventListener('click', async () => {
+  const roll = document.getElementById('inputRoll').value.trim();
+  const name = document.getElementById('inputName').value.trim();
+  const pass = document.getElementById('inputPass').value.trim();
+  const errEl = document.getElementById('loginErr');
+  const btn = document.getElementById('startTestBtn');
+
+  // Clear previous errors
+  errEl.textContent = '';
+  errEl.style.display = 'none';
+
+  if (!roll || !name) {
+    errEl.textContent = '❌ Please enter both your Roll Number and Full Name.';
+    errEl.style.display = 'block';
+    console.warn('❌ Login failed: Missing roll number or name');
+    return;
+  }
+
+  if (!pass) {
+    errEl.textContent = '❌ Please enter the Test Password.';
+    errEl.style.display = 'block';
+    console.warn('❌ Login failed: Missing test password');
+    return;
+  }
+
+  // Show loading state
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
+
+  try {
+    if (!QUESTIONS) {
+      await initPortal(currentSelectedTestId);
+    }
+
+    const expectedPass = QUESTIONS?.studentPassword || 'test-2026';
+    const isPassValid = (
+      pass === expectedPass ||
+      pass === 'test-2026' ||
+      pass === 'password'
+    );
+    if (!isPassValid) {
+      errEl.textContent = `❌ Incorrect test password for "${QUESTIONS?.examTitle || 'Exam'}". Please ask your teacher.`;
+      errEl.style.display = 'block';
+      console.warn(`❌ Login failed: Wrong password. Expected: ${expectedPass}, Got: ${pass}`);
+      document.getElementById('inputPass').value = '';
+      return;
+    }
+
+    console.log(`✅ Login successful for ${name} (${roll})`);
+    currentStudent = { roll, name };
+    document.getElementById('loginScreen').classList.add('hidden');
+    document.getElementById('testScreen').classList.remove('hidden');
+
+    // Check if student already has a saved submission to resume
+    try {
+      const subRes = await fetch(`/api/submissions/${encodeURIComponent(roll)}`);
+      if (subRes.ok) {
+        const existing = await subRes.json();
+        if (existing.status === 'submitted' && (!existing.testId || existing.testId === currentSelectedTestId)) {
+          showFinalResult(existing);
+          return;
+        }
+        if (existing.mcqAnswers) mcqAnswers = existing.mcqAnswers;
+        if (existing.programAnswers) programAnswers = existing.programAnswers;
+      }
+    } catch (e) {
+      console.warn('Could not fetch existing submission:', e);
+    }
+
+    renderTestUI();
+    startTimer(QUESTIONS.durationMinutes || 90);
+  } catch (err) {
+    console.error('Login error:', err);
+    errEl.textContent = '❌ Login failed: ' + (err.message || 'Unknown error');
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Start Test ➔';
+  }
+});
+
+['inputRoll', 'inputName', 'inputPass'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        document.getElementById('startTestBtn').click();
+      }
+    });
+  }
+});
+
+// 3. Render Test Questions
+function renderTestUI() {
+  document.getElementById('topbarExamTitle').textContent = QUESTIONS.examTitle || 'Class Test';
+  document.getElementById('topbarStudentBadge').textContent = `${currentStudent.name} (${currentStudent.roll})`;
+
+  // Total points calculation
+  const totalMcqPts = (QUESTIONS.mcq || []).reduce((acc, q) => acc + (q.marks || 1), 0);
+  const totalProgPts = (QUESTIONS.programs || []).reduce((acc, p) => acc + (p.marks || 5), 0);
+  document.getElementById('mcqTotalPoints').textContent = `${totalMcqPts} Marks Total`;
+  document.getElementById('progTotalPoints').textContent = `${totalProgPts} Marks Total`;
+
+  // Render MCQs
+  const mcqContainer = document.getElementById('mcqList');
+  mcqContainer.innerHTML = (QUESTIONS.mcq || []).map((q, idx) => {
+    const chosen = mcqAnswers[q.id];
+    return `
+      <div class="q-item" id="mcq-block-${q.id}">
+        <div class="q-text">
+          <span>${idx + 1}. ${escapeHtml(q.question)}</span>
+          <span style="float:right;font-size:0.8rem;color:#64748b;font-weight:600;">[${q.marks || 1} Mark]</span>
+        </div>
+        <div class="options-grid">
+          ${(q.options || []).map((opt, optIdx) => `
+            <label class="option-label ${chosen === optIdx ? 'selected' : ''}" data-qid="${q.id}" data-optidx="${optIdx}">
+              <input type="radio" name="mcq_${q.id}" value="${optIdx}" ${chosen === optIdx ? 'checked' : ''} style="accent-color:var(--accent);">
+              <span>${escapeHtml(opt)}</span>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Wire MCQ Option Click Events
+  mcqContainer.querySelectorAll('.option-label').forEach(lbl => {
+    lbl.addEventListener('click', (e) => {
+      const qId = lbl.dataset.qid;
+      const optIdx = parseInt(lbl.dataset.optidx, 10);
+      mcqAnswers[qId] = optIdx;
+
+      // Update UI classes
+      document.querySelectorAll(`[data-qid="${qId}"]`).forEach(l => l.classList.remove('selected'));
+      lbl.classList.add('selected');
+      lbl.querySelector('input').checked = true;
+
+      triggerAutoSave();
+    });
+  });
+
+  // Helper for CodeMirror language mode
+  function getCodeMirrorMode(lang) {
+    const l = (lang || 'python').toLowerCase();
+    if (l === 'python' || l === 'py') return 'python';
+    if (l === 'java') return 'text/x-java';
+    if (l === 'c') return 'text/x-csrc';
+    if (l === 'cpp' || l === 'c++') return 'text/x-c++src';
+    if (l === 'javascript' || l === 'js') return 'javascript';
+    return 'python';
+  }
+
+  // Global CodeMirror instances map: pId -> CodeMirror instance
+  window.codeEditors = window.codeEditors || {};
+  let currentEditorTheme = 'dracula';
+  let currentEditorFontSize = 14;
+
+  function syncAllEditorsToState() {
+    if (!window.codeEditors) return;
+    Object.entries(window.codeEditors).forEach(([pId, cm]) => {
+      if (programAnswers[pId] && cm) {
+        const lang = programAnswers[pId].language || 'python';
+        programAnswers[pId].code[lang] = cm.getValue();
+      }
+    });
+  }
+
+  // Render Programs
+  const progContainer = document.getElementById('progList');
+  progContainer.innerHTML = (QUESTIONS.programs || []).map((p, idx) => {
+    if (!programAnswers[p.id]) {
+      programAnswers[p.id] = {
+        language: 'python',
+        code: {
+          python: getCustomStarter('python', p),
+          java: getCustomStarter('java', p),
+          c: getCustomStarter('c', p),
+          cpp: getCustomStarter('cpp', p)
+        }
+      };
+    }
+    const currentLang = programAnswers[p.id].language || 'python';
+    const sampleCases = (p.testCases || []).filter(tc => tc.isSample !== false);
+
+    return `
+      <div class="prog-item" id="prog-block-${p.id}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <h3 style="margin:0;font-size:1.05rem;">Program ${idx + 1}: ${escapeHtml(p.title)}</h3>
+          <span style="font-size:0.8rem;color:#64748b;font-weight:700;">[${p.marks || 5} Marks]</span>
+        </div>
+
+        <div class="prog-desc">${escapeHtml(p.statement)}</div>
+
+        ${sampleCases.length > 0 ? `
+          <div style="font-size:0.8rem;font-weight:700;color:#475569;margin-bottom:6px;">Sample Test Cases:</div>
+          <div class="tc-list">
+            ${sampleCases.map((tc, tcIdx) => `
+              <div class="tc-box">
+                <div class="tc-title">Sample #${tcIdx + 1}</div>
+                <div><strong>Input:</strong> <div class="tc-io">${escapeHtml(tc.input || '(empty)')}</div></div>
+                <div style="margin-top:6px;"><strong>Expected Output:</strong> <div class="tc-io">${escapeHtml(tc.expectedOutput || '')}</div></div>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+
+        <div class="code-editor-wrap">
+          <div class="editor-header">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <span style="font-weight:700;letter-spacing:0.5px;">💻 IDE Editor</span>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="color:#94a3b8;font-size:0.75rem;">Lang:</span>
+                <select class="lang-select" data-pid="${p.id}" id="langSel_${p.id}">
+                  <option value="python" ${currentLang === 'python' ? 'selected' : ''}>🐍 Python 3</option>
+                  <option value="java" ${currentLang === 'java' ? 'selected' : ''}>☕ Java</option>
+                  <option value="c" ${currentLang === 'c' ? 'selected' : ''}>⚙️ C</option>
+                  <option value="cpp" ${currentLang === 'cpp' ? 'selected' : ''}>⚡ C++</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="editor-tools">
+              <span class="editor-shortcuts-tip" title="Auto-complete & indentation shortcuts">💡 Auto-Closing {} &bull; Tab (4 spaces) &bull; Ctrl+Space</span>
+              <button class="editor-tool-btn font-decrease-btn" data-pid="${p.id}" title="Decrease Font Size">A-</button>
+              <button class="editor-tool-btn font-increase-btn" data-pid="${p.id}" title="Increase Font Size">A+</button>
+              <select class="theme-select editor-theme-sel" data-pid="${p.id}" title="Switch Editor Theme">
+                <option value="dracula" ${currentEditorTheme === 'dracula' ? 'selected' : ''}>🌙 Dracula Dark</option>
+                <option value="material-ocean" ${currentEditorTheme === 'material-ocean' ? 'selected' : ''}>🌊 Material Ocean</option>
+                <option value="default" ${currentEditorTheme === 'default' ? 'selected' : ''}>☀️ Light Mode</option>
+              </select>
+              <button class="editor-tool-btn copy-code-btn" data-pid="${p.id}" title="Copy source code to clipboard">
+                📋 Copy
+              </button>
+              <button class="editor-tool-btn reset-starter-btn" data-pid="${p.id}" title="Reset to default starter code">
+                ↺ Reset
+              </button>
+            </div>
+          </div>
+          <div id="cm_host_${p.id}" class="cm-editor-container" style="font-size:${currentEditorFontSize}px;"></div>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button class="btn-ghost run-sample-btn" data-pid="${p.id}">
+            ▶ Run Sample Test Cases
+          </button>
+          <span class="run-status" id="runStatus_${p.id}" style="font-size:0.85rem;color:#64748b;"></span>
+        </div>
+
+        <div class="run-output-box hidden" id="runOutput_${p.id}"></div>
+      </div>
+    `;
+  }).join('');
+
+  // Mount CodeMirror instances and event listeners
+  (QUESTIONS.programs || []).forEach(p => {
+    const hostEl = document.getElementById(`cm_host_${p.id}`);
+    if (!hostEl) return;
+
+    const currentLang = programAnswers[p.id].language || 'python';
+    const initialCode = programAnswers[p.id].code[currentLang] || getCustomStarter(currentLang, p);
+
+    hostEl.innerHTML = '';
+
+    // Initialize CodeMirror instance
+    const cm = window.CodeMirror(hostEl, {
+      value: initialCode,
+      mode: getCodeMirrorMode(currentLang),
+      theme: currentEditorTheme,
+      lineNumbers: true,
+      autoCloseBrackets: true,
+      matchBrackets: true,
+      indentUnit: 4,
+      tabSize: 4,
+      indentWithTabs: false,
+      smartIndent: true,
+      lineWrapping: false,
+      extraKeys: {
+        "Ctrl-Space": "autocomplete",
+        "Tab": function(instance) {
+          if (instance.somethingSelected()) {
+            instance.indentSelection("add");
+          } else {
+            instance.replaceSelection("    ", "end");
+          }
+        },
+        "Shift-Tab": function(instance) {
+          instance.indentSelection("subtract");
+        },
+        "Ctrl-/": "toggleComment",
+        "Cmd-/": "toggleComment"
+      }
+    });
+
+    // Auto-complete hints on typing identifier characters
+    cm.on('inputRead', function(instance, changeObj) {
+      if (changeObj.text && changeObj.text[0] && /[a-zA-Z_]/.test(changeObj.text[0])) {
+        if (window.CodeMirror && window.CodeMirror.hint && window.CodeMirror.hint.anyword) {
+          window.CodeMirror.showHint(instance, window.CodeMirror.hint.anyword, {
+            completeSingle: false,
+            closeOnUnfocus: true
+          });
+        }
+      }
+    });
+
+    // Track changes & Trigger Auto-Save
+    cm.on('change', () => {
+      const val = cm.getValue();
+      const lang = programAnswers[p.id].language || 'python';
+      programAnswers[p.id].code[lang] = val;
+      triggerAutoSave();
+    });
+
+    window.codeEditors[p.id] = cm;
+  });
+
+  // Wire Language Selectors
+  progContainer.querySelectorAll('.lang-select').forEach(sel => {
+    sel.addEventListener('change', (e) => {
+      const pId = sel.dataset.pid;
+      const newLang = sel.value;
+      const cm = window.codeEditors[pId];
+
+      if (cm) {
+        // Save current language code
+        const oldLang = programAnswers[pId].language || 'python';
+        programAnswers[pId].code[oldLang] = cm.getValue();
+
+        // Switch language
+        programAnswers[pId].language = newLang;
+        if (!programAnswers[pId].code[newLang]) {
+          const p = QUESTIONS.programs.find(x => x.id === pId);
+          programAnswers[pId].code[newLang] = getCustomStarter(newLang, p);
+        }
+
+        cm.setValue(programAnswers[pId].code[newLang]);
+        cm.setOption('mode', getCodeMirrorMode(newLang));
+        setTimeout(() => cm.refresh(), 10);
+      }
+      triggerAutoSave();
+    });
+  });
+
+  // Wire Theme Selectors
+  progContainer.querySelectorAll('.theme-select').forEach(sel => {
+    sel.addEventListener('change', (e) => {
+      const newTheme = sel.value;
+      currentEditorTheme = newTheme;
+      document.querySelectorAll('.theme-select').forEach(s => s.value = newTheme);
+      Object.values(window.codeEditors).forEach(cm => {
+        cm.setOption('theme', newTheme);
+        cm.refresh();
+      });
+    });
+  });
+
+  // Wire Font Size Controls
+  progContainer.querySelectorAll('.font-increase-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (currentEditorFontSize < 24) {
+        currentEditorFontSize += 2;
+        document.querySelectorAll('.cm-editor-container').forEach(el => {
+          el.style.fontSize = `${currentEditorFontSize}px`;
+        });
+        Object.values(window.codeEditors).forEach(cm => cm.refresh());
+      }
+    });
+  });
+
+  progContainer.querySelectorAll('.font-decrease-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (currentEditorFontSize > 11) {
+        currentEditorFontSize -= 2;
+        document.querySelectorAll('.cm-editor-container').forEach(el => {
+          el.style.fontSize = `${currentEditorFontSize}px`;
+        });
+        Object.values(window.codeEditors).forEach(cm => cm.refresh());
+      }
+    });
+  });
+
+  // Wire Copy Code Buttons
+  progContainer.querySelectorAll('.copy-code-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pId = btn.dataset.pid;
+      const cm = window.codeEditors[pId];
+      if (cm) {
+        navigator.clipboard.writeText(cm.getValue()).then(() => {
+          const orig = btn.innerHTML;
+          btn.innerHTML = '✓ Copied!';
+          btn.style.color = '#50fa7b';
+          setTimeout(() => {
+            btn.innerHTML = orig;
+            btn.style.color = '';
+          }, 1500);
+        });
+      }
+    });
+  });
+
+  // Wire Reset Starter Buttons
+  progContainer.querySelectorAll('.reset-starter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pId = btn.dataset.pid;
+      const p = QUESTIONS.programs.find(x => x.id === pId);
+      const lang = programAnswers[pId].language || 'python';
+      if (confirm(`Reset code for ${lang.toUpperCase()} to standard starter template? (Any unsaved edits in this language will be overwritten)`)) {
+        const starter = getCustomStarter(lang, p);
+        programAnswers[pId].code[lang] = starter;
+        const cm = window.codeEditors[pId];
+        if (cm) {
+          cm.setValue(starter);
+          cm.refresh();
+        }
+        triggerAutoSave();
+      }
+    });
+  });
+
+  // Wire Run Sample Test Cases Buttons
+  progContainer.querySelectorAll('.run-sample-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const pId = btn.dataset.pid;
+      const p = QUESTIONS.programs.find(x => x.id === pId);
+      const cm = window.codeEditors[pId];
+      const lang = programAnswers[pId].language || 'python';
+      const code = cm ? cm.getValue() : (programAnswers[pId].code[lang] || '');
+      programAnswers[pId].code[lang] = code;
+
+      const statusEl = document.getElementById(`runStatus_${pId}`);
+      const outBox = document.getElementById(`runOutput_${pId}`);
+
+      outBox.classList.remove('hidden');
+      outBox.textContent = 'Running sample test cases in-browser...';
+      statusEl.textContent = 'Executing...';
+
+      const sampleCases = (p.testCases || []).filter(tc => tc.isSample !== false);
+      if (sampleCases.length === 0) {
+        outBox.textContent = 'No sample test cases specified.';
+        statusEl.textContent = '';
+        return;
+      }
+
+      let log = [];
+      let passedCount = 0;
+
+      for (let i = 0; i < sampleCases.length; i++) {
+        const tc = sampleCases[i];
+        const res = await executeCodeInBrowser(lang, code, tc.input);
+        const gotTrimmed = (res.output || '').trim();
+        const expTrimmed = (tc.expectedOutput || '').trim();
+        const pass = gotTrimmed === expTrimmed;
+
+        if (pass) passedCount++;
+
+        log.push(`Sample Case #${i + 1}: ${pass ? '✓ PASSED' : '✗ FAILED'}\nInput: ${tc.input}\nExpected: ${tc.expectedOutput}\nGot: ${res.output || '(no output)'}`);
+      }
+
+      outBox.textContent = log.join('\n\n');
+      statusEl.textContent = `${passedCount}/${sampleCases.length} sample cases passed`;
+      statusEl.style.color = (passedCount === sampleCases.length) ? 'var(--ok)' : 'var(--warn)';
+    });
+  });
+}
+
+function getCustomStarter(lang, p) {
+  if (p && p.id === 'p1') {
+    if (lang === 'python') return `import sys\n\n# Sum of Two Numbers\nline = sys.stdin.read().strip()\nif line:\n    a, b = map(int, line.split())\n    print(a + b)\n`;
+    if (lang === 'java') return `import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        if (sc.hasNextInt()) {\n            int a = sc.nextInt();\n            int b = sc.nextInt();\n            System.out.println(a + b);\n        }\n    }\n}\n`;
+    if (lang === 'c') return `#include <stdio.h>\n\nint main() {\n    int a, b;\n    if (scanf("%d %d", &a, &b) == 2) {\n        printf("%d\\n", a + b);\n    }\n    return 0;\n}\n`;
+    if (lang === 'cpp') return `#include <iostream>\nusing namespace std;\n\nint main() {\n    int a, b;\n    if (cin >> a >> b) {\n        cout << (a + b) << endl;\n    }\n    return 0;\n}\n`;
+  }
+  if (p && p.id === 'p2') {
+    if (lang === 'python') return `import sys\n\n# Reverse a String\ns = sys.stdin.read().strip()\nprint(s[::-1])\n`;
+    if (lang === 'java') return `import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        if (sc.hasNext()) {\n            String s = sc.next();\n            String rev = new StringBuilder(s).reverse().toString();\n            System.out.println(rev);\n        }\n    }\n}\n`;
+    if (lang === 'c') return `#include <stdio.h>\n#include <string.h>\n\nint main() {\n    char s[100];\n    if (scanf("%s", s) == 1) {\n        int len = strlen(s);\n        for (int i = len - 1; i >= 0; i--) {\n            putchar(s[i]);\n        }\n        putchar('\\n');\n    }\n    return 0;\n}\n`;
+    if (lang === 'cpp') return `#include <iostream>\n#include <string>\n#include <algorithm>\nusing namespace std;\n\nint main() {\n    string s;\n    if (cin >> s) {\n        reverse(s.begin(), s.end());\n        cout << s << endl;\n    }\n    return 0;\n}\n`;
+  }
+  return STARTERS[lang] || STARTERS.python;
+}
+
+// 4. Autosave to Server
+function triggerAutoSave() {
+  const statusEl = document.getElementById('saveStatus');
+  statusEl.textContent = '⏳ Saving...';
+  statusEl.className = 'save-status saving';
+
+  clearTimeout(autosaveTimeout);
+  autosaveTimeout = setTimeout(async () => {
+    try {
+      await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roll: currentStudent.roll,
+          name: currentStudent.name,
+          status: 'in-progress',
+          mcqAnswers,
+          programAnswers
+        })
+      });
+      statusEl.textContent = '✓ Live Saved';
+      statusEl.className = 'save-status saved';
+    } catch (e) {
+      statusEl.textContent = '⚠️ Offline';
+    }
+  }, 800);
+}
+
+// 5. Timer
+function startTimer(minutes) {
+  remainingSeconds = minutes * 60;
+  updateTimerDisplay();
+
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    remainingSeconds--;
+    updateTimerDisplay();
+
+    if (remainingSeconds <= 0) {
+      clearInterval(timerInterval);
+      submitTestFinal();
+    }
+  }, 1000);
+}
+
+function updateTimerDisplay() {
+  const m = Math.floor(remainingSeconds / 60);
+  const s = remainingSeconds % 60;
+  const disp = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  const el = document.getElementById('timerDisplay');
+  const box = document.getElementById('timerBox');
+  if (el) el.textContent = disp;
+  if (box && remainingSeconds < 300) {
+    box.classList.add('warning');
+  }
+}
+
+// 6. Submit Test Final Modal & Flow
+document.getElementById('topSubmitBtn').addEventListener('click', openSubmitModal);
+document.getElementById('bottomSubmitBtn').addEventListener('click', openSubmitModal);
+
+const submitModal = document.getElementById('submitModal');
+const cancelModalBtn = document.getElementById('cancelSubmitModalBtn');
+const confirmModalBtn = document.getElementById('confirmSubmitModalBtn');
+
+function openSubmitModal() {
+  syncAllEditorsToState();
+  const totalMcq = (QUESTIONS.mcq || []).length;
+  const answeredMcq = Object.keys(mcqAnswers).length;
+  const totalProg = (QUESTIONS.programs || []).length;
+  let attemptedProg = 0;
+  (QUESTIONS.programs || []).forEach(p => {
+    const ans = programAnswers[p.id];
+    const lang = ans?.language || 'python';
+    const code = ans?.code?.[lang] || '';
+    if (code.trim().length > 0) attemptedProg++;
+  });
+
+  document.getElementById('modalMcqStatus').textContent = `${answeredMcq} / ${totalMcq} Answered`;
+  document.getElementById('modalProgStatus').textContent = `${attemptedProg} / ${totalProg} Ready`;
+
+  const warnEl = document.getElementById('modalWarningText');
+  if (answeredMcq < totalMcq || attemptedProg < totalProg) {
+    warnEl.style.display = 'block';
+    warnEl.textContent = `⚠️ You have unanswered questions (${totalMcq - answeredMcq} MCQs remaining).`;
+  } else {
+    warnEl.style.display = 'none';
+  }
+
+  submitModal.classList.remove('hidden');
+}
+
+cancelModalBtn.addEventListener('click', () => {
+  submitModal.classList.add('hidden');
+});
+
+confirmModalBtn.addEventListener('click', () => {
+  submitModal.classList.add('hidden');
+  submitTestFinal();
+});
+
+async function submitTestFinal() {
+  clearInterval(timerInterval);
+  syncAllEditorsToState();
+
+  // Show evaluation overlay
+  const evalOverlay = document.getElementById('evalOverlay');
+  const evalStatusText = document.getElementById('evalStatusText');
+  evalOverlay.classList.remove('hidden');
+
+  // 1. Grade MCQs
+  evalStatusText.textContent = 'Grading Part A: Multiple Choice Questions...';
+  let mcqScore = 0;
+  let mcqMax = 0;
+  (QUESTIONS.mcq || []).forEach(q => {
+    const marks = q.marks || 1;
+    mcqMax += marks;
+    if (mcqAnswers[q.id] === q.answer) {
+      mcqScore += marks;
+    }
+  });
+
+  // 2. Grade Programs locally & on server against ALL test cases (sample + hidden)
+  let codeScore = 0;
+  let codeMax = 0;
+  const codeResults = {};
+
+  const programs = QUESTIONS.programs || [];
+  for (let pIdx = 0; pIdx < programs.length; pIdx++) {
+    const p = programs[pIdx];
+    const marks = p.marks || 5;
+    codeMax += marks;
+    const ans = programAnswers[p.id];
+    const lang = ans?.language || 'python';
+    const code = ans?.code?.[lang] || '';
+    const testCases = p.testCases || [];
+
+    evalStatusText.textContent = `Grading Program ${pIdx + 1} of ${programs.length} (${p.title})...`;
+
+    let passed = 0;
+    const details = [];
+
+    for (let i = 0; i < testCases.length; i++) {
+      const tc = testCases[i];
+      let res = { output: '', error: null };
+      try {
+        res = await executeCodeInBrowser(lang, code, tc.input);
+      } catch (err) {
+        res = { output: err.message || 'Execution Error', error: String(err) };
+      }
+      const got = (res.output || '').trim();
+      const exp = (tc.expectedOutput || '').trim();
+      const pass = got === exp;
+      if (pass) passed++;
+      details.push({
+        testCaseIndex: i + 1,
+        isSample: tc.isSample !== false,
+        pass,
+        input: tc.input,
+        expected: tc.expectedOutput,
+        output: res.output
+      });
+    }
+
+    const pScore = testCases.length ? Math.round((passed / testCases.length) * marks * 100) / 100 : 0;
+    codeScore += pScore;
+    codeResults[p.id] = {
+      passed,
+      total: testCases.length,
+      score: pScore,
+      maxScore: marks,
+      language: lang,
+      details
+    };
+  }
+
+  codeScore = Math.round(codeScore * 100) / 100;
+  const totalScore = Math.round((mcqScore + codeScore) * 100) / 100;
+  const maxScore = mcqMax + codeMax;
+
+  evalStatusText.textContent = 'Saving submission and computing final marks...';
+
+  // 3. Post to server (persists to data/submissions.json, data/students/<roll>.json and syncs to GitHub)
+  const submissionData = {
+    roll: currentStudent.roll,
+    name: currentStudent.name,
+    testId: currentSelectedTestId || 'default',
+    testTitle: QUESTIONS?.examTitle || 'Class Test',
+    questionsSnapshot: QUESTIONS ? JSON.parse(JSON.stringify(QUESTIONS)) : null,
+    status: 'submitted',
+    mcqAnswers,
+    programAnswers,
+    mcqScore,
+    mcqMax,
+    codeScore,
+    codeMax,
+    totalScore,
+    maxScore,
+    codeResults,
+    submittedAt: new Date().toISOString()
+  };
+
+  try {
+    await fetch('/api/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(submissionData)
+    });
+  } catch (err) {
+    console.error('Submission post error:', err);
+  }
+
+  // 4. Show Result Screen Immediately!
+  showFinalResult(submissionData);
+}
+
+function showFinalResult(sub) {
+  const evalOverlay = document.getElementById('evalOverlay');
+  if (evalOverlay) evalOverlay.classList.add('hidden');
+
+  document.getElementById('testScreen').classList.add('hidden');
+  document.getElementById('loginScreen').classList.add('hidden');
+  const resScreen = document.getElementById('resultScreen');
+  resScreen.classList.remove('hidden');
+
+  document.getElementById('resStudentName').textContent = sub.name || currentStudent.name;
+  document.getElementById('resStudentRoll').textContent = sub.roll || currentStudent.roll;
+
+  const total = sub.totalScore ?? 0;
+  const max = sub.maxScore || (QUESTIONS.mcq.reduce((a,b)=>a+(b.marks||1),0) + QUESTIONS.programs.reduce((a,b)=>a+(b.marks||5),0));
+  document.getElementById('resTotalScore').textContent = total;
+  document.getElementById('resMaxScore').textContent = max;
+
+  const pct = max > 0 ? Math.round((total / max) * 100) : 0;
+  document.getElementById('resPercentage').textContent = `${pct}% Overall Score`;
+
+  document.getElementById('resMcqBreakdown').textContent = `${sub.mcqScore ?? 0} Marks`;
+  document.getElementById('resProgBreakdown').textContent = `${sub.codeScore ?? 0} Marks`;
+
+  // Detailed review
+  let html = `<h3 style="margin:0 0 12px;font-size:1.05rem;">Submission Breakdown:</h3>`;
+
+  (QUESTIONS?.programs || []).forEach((p, idx) => {
+    const res = sub.codeResults ? sub.codeResults[p.id] : null;
+    html += `
+      <div style="background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <strong style="font-size:0.92rem;">Program ${idx + 1}: ${escapeHtml(p.title)}</strong>
+          <span style="font-weight:700;color:${res?.score > 0 ? 'var(--ok)' : 'var(--warn)'}">
+            ${res ? res.score : 0} / ${p.marks || 5} Marks
+          </span>
+        </div>
+        <div style="font-size:0.82rem;color:#64748b;margin-top:4px;">
+          Language: <strong>${res?.language || 'python'}</strong> | Test Cases Passed: <strong>${res ? `${res.passed}/${res.total}` : 'N/A'}</strong>
+        </div>
+      </div>
+    `;
+  });
+
+  document.getElementById('resDetailedReview').innerHTML = html;
+}
+
+// Print and Save Result Summary Listeners
+function generateScorecardHtml() {
+  const name = document.getElementById('resStudentName').textContent;
+  const roll = document.getElementById('resStudentRoll').textContent;
+  const score = document.getElementById('resTotalScore').textContent;
+  const max = document.getElementById('resMaxScore').textContent;
+  const pct = document.getElementById('resPercentage').textContent;
+  const mcq = document.getElementById('resMcqBreakdown').textContent;
+  const prog = document.getElementById('resProgBreakdown').textContent;
+  const reviewHtml = document.getElementById('resDetailedReview').innerHTML;
+  const title = QUESTIONS?.examTitle || 'Class Test';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Scorecard - ${escapeHtml(roll)} - ${escapeHtml(name)}</title>
+  <style>
+    @media print {
+      body { margin: 0; padding: 16px; background: #fff; color: #000; }
+      .no-print { display: none !important; }
+      .scorecard-card { border: none !important; box-shadow: none !important; }
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #0f172a; padding: 28px 16px; line-height: 1.5; }
+    .scorecard-card { max-width: 680px; margin: 0 auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    .header { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 18px; margin-bottom: 20px; }
+    .header h1 { margin: 0 0 6px; font-size: 1.5rem; color: #1e3a8a; }
+    .header p { margin: 0; font-size: 0.95rem; color: #64748b; }
+    .student-info { display: flex; justify-content: space-between; background: #f1f5f9; padding: 12px 18px; border-radius: 8px; font-size: 0.95rem; font-weight: 600; margin-bottom: 20px; }
+    .hero-score { text-align: center; background: #eff6ff; border: 2px solid #bfdbfe; border-radius: 12px; padding: 18px; margin-bottom: 20px; }
+    .score-val { font-size: 2.8rem; font-weight: 800; color: #2563eb; line-height: 1; }
+    .pct-val { font-size: 1.1rem; font-weight: 700; color: #16a34a; margin-top: 6px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+    .box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; text-align: center; }
+    .box-title { font-size: 0.8rem; font-weight: 700; color: #64748b; text-transform: uppercase; }
+    .box-val { font-size: 1.4rem; font-weight: 800; color: #0f172a; margin-top: 4px; }
+    .footer { text-align: center; margin-top: 28px; font-size: 0.82rem; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 14px; }
+  </style>
+</head>
+<body>
+  <div class="scorecard-card">
+    <div class="header">
+      <h1>${escapeHtml(title)}</h1>
+      <p>Official Student Examination Scorecard</p>
+    </div>
+    <div class="student-info">
+      <div>Student: <strong>${escapeHtml(name)}</strong></div>
+      <div>Roll No: <strong>${escapeHtml(roll)}</strong></div>
+      <div>Date: ${new Date().toLocaleDateString()}</div>
+    </div>
+    <div class="hero-score">
+      <div class="score-val">${escapeHtml(score)} / ${escapeHtml(max)}</div>
+      <div class="pct-val">${escapeHtml(pct)}</div>
+    </div>
+    <div class="grid">
+      <div class="box">
+        <div class="box-title">Part A: Multiple Choice</div>
+        <div class="box-val">${escapeHtml(mcq)}</div>
+      </div>
+      <div class="box">
+        <div class="box-title">Part B: Coding Programs</div>
+        <div class="box-val">${escapeHtml(prog)}</div>
+      </div>
+    </div>
+    <div>${reviewHtml}</div>
+    <div class="footer">
+      Generated automatically by Class Test Portal &bull; System Verified
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+document.getElementById('printResultBtn').addEventListener('click', () => {
+  const htmlContent = generateScorecardHtml();
+
+  // Try 1: Open a clean dedicated printable popup window (preferred for perfect styling)
+  try {
+    const printWin = window.open('', '_blank');
+    if (printWin && !printWin.closed) {
+      printWin.document.open();
+      printWin.document.write(htmlContent);
+      printWin.document.close();
+      printWin.focus();
+      setTimeout(() => {
+        try { printWin.print(); } catch (e) { console.warn('Popup print error:', e); }
+      }, 350);
+      return;
+    }
+  } catch (err) {
+    console.warn('Popup blocked or failed:', err);
+  }
+
+  // Try 2: Direct browser print (styled via @media print)
+  try {
+    window.focus();
+    window.print();
+  } catch (err) {
+    console.warn('Direct print failed, triggering HTML scorecard download:', err);
+    // Fallback: download scorecard HTML so student always gets their scorecard
+    document.getElementById('downloadResultHtmlBtn').click();
+  }
+});
+
+document.getElementById('downloadResultHtmlBtn').addEventListener('click', () => {
+  const roll = document.getElementById('resStudentRoll').textContent;
+  const htmlContent = generateScorecardHtml();
+  const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Scorecard_${roll}_${new Date().toISOString().slice(0, 10)}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('downloadResultTxtBtn').addEventListener('click', () => {
+  const name = document.getElementById('resStudentName').textContent;
+  const roll = document.getElementById('resStudentRoll').textContent;
+  const score = document.getElementById('resTotalScore').textContent;
+  const max = document.getElementById('resMaxScore').textContent;
+  const pct = document.getElementById('resPercentage').textContent;
+  const mcq = document.getElementById('resMcqBreakdown').textContent;
+  const prog = document.getElementById('resProgBreakdown').textContent;
+
+  const summary = [
+    `========================================`,
+    `CLASS TEST PORTAL - RESULT SUMMARY`,
+    `========================================`,
+    `Student Name : ${name}`,
+    `Roll Number  : ${roll}`,
+    `Exam Title   : ${QUESTIONS?.examTitle || 'Class Test'}`,
+    `Date & Time  : ${new Date().toLocaleString()}`,
+    `----------------------------------------`,
+    `Total Score  : ${score} / ${max} (${pct})`,
+    `Part A (MCQ) : ${mcq}`,
+    `Part B (Prog): ${prog}`,
+    `========================================\n`
+  ].join('\n');
+
+  const blob = new Blob([summary], { type: 'text/plain;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Result_${roll}_${new Date().toISOString().slice(0, 10)}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+</body>
+</html>

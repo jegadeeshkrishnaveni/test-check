@@ -31,8 +31,12 @@ app.use((req, res, next) => {
     !p.startsWith('/api') && 
     !p.startsWith('/admin') && 
     p !== '/' && 
-    !p.includes('.') &&
-    (p.startsWith('/tests') || p.startsWith('/questions') || p.startsWith('/run-code') || p.startsWith('/submit') || p.startsWith('/submissions') || p.startsWith('/github-config') || p.startsWith('/save-questions') || p.startsWith('/github-sync-all'))
+    !p.startsWith('/vendor') &&
+    !p.endsWith('.html') &&
+    !p.endsWith('.js') &&
+    !p.endsWith('.css') &&
+    !p.endsWith('.ico') &&
+    !p.endsWith('.png')
   ) {
     req.url = '/api' + req.url;
   }
@@ -1458,21 +1462,26 @@ app.get('/', (req, res) => {
 
 // Route for admin page
 app.get('/admin', (req, res) => {
-  const adminPath = path.join(__dirname, 'admin.html');
-  if (fs.existsSync(adminPath)) {
-    return res.sendFile(adminPath);
+  const rootAdmin = path.join(__dirname, 'admin.html');
+  const publicAdmin = path.join(__dirname, 'public', 'admin.html');
+  const target = fs.existsSync(publicAdmin) ? publicAdmin : rootAdmin;
+  if (fs.existsSync(target)) {
+    return res.sendFile(target);
   }
   res.status(404).send('Admin page not found');
 });
 
-// Serve static files from root directory
+// Serve static files from public directory and root directory
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 
 // Fallback to index.html for SPA routes
 app.get('*', (req, res) => {
-  const indexPath = path.join(__dirname, 'index.html');
-  if (fs.existsSync(indexPath)) {
-    return res.sendFile(indexPath);
+  const rootIndex = path.join(__dirname, 'index.html');
+  const publicIndex = path.join(__dirname, 'public', 'index.html');
+  const target = fs.existsSync(publicIndex) ? publicIndex : rootIndex;
+  if (fs.existsSync(target)) {
+    return res.sendFile(target);
   }
   res.status(404).send('Not found');
 });

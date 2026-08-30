@@ -1,14 +1,14 @@
 {
-  "activeTestId": "test_mtffms31_vat8",
+  "activeTestId": "test_mtfg54y3_w0zj",
   "tests": {
     "default": {
-      "examTitle": "Sample Unit Test",
-      "durationMinutes": 45,
-      "studentPassword": "test",
+      "examTitle": "Final Exam Demo",
+      "durationMinutes": 90,
+      "studentPassword": "final",
       "isActive": true,
       "mcq": [
         {
-          "id": "m_1788071398859",
+          "id": "m_1788072404043",
           "question": "Which data structure follows the Last In First Out (LIFO) principle?",
           "options": [
             "Queue",
@@ -22,7 +22,7 @@
       ],
       "programs": [
         {
-          "id": "p_1788071398859",
+          "id": "p_1788072404043",
           "title": "Sum of Two Numbers",
           "statement": "Read two space-separated integers a and b from standard input and print their sum to standard output.",
           "marks": 5,
@@ -45,7 +45,7 @@
           ]
         }
       ],
-      "createdAt": "2026-08-30T06:29:58.859Z"
+      "createdAt": "2026-08-30T06:46:44.043Z"
     },
     "test_mtffjlca_ddgv": {
       "examTitle": "Sample Unit Test",
@@ -138,6 +138,52 @@
         }
       ],
       "createdAt": "2026-08-30T06:32:27.565Z"
+    },
+    "test_mtfg54y3_w0zj": {
+      "examTitle": "Final Exam Demo",
+      "durationMinutes": 90,
+      "studentPassword": "final",
+      "isActive": true,
+      "mcq": [
+        {
+          "id": "m_1788072404043",
+          "question": "Which data structure follows the Last In First Out (LIFO) principle?",
+          "options": [
+            "Queue",
+            "Stack",
+            "Array",
+            "Linked List"
+          ],
+          "answer": 1,
+          "marks": 1
+        }
+      ],
+      "programs": [
+        {
+          "id": "p_1788072404043",
+          "title": "Sum of Two Numbers",
+          "statement": "Read two space-separated integers a and b from standard input and print their sum to standard output.",
+          "marks": 5,
+          "testCases": [
+            {
+              "input": "2 3",
+              "expectedOutput": "5",
+              "isSample": true
+            },
+            {
+              "input": "10 -4",
+              "expectedOutput": "6",
+              "isSample": true
+            },
+            {
+              "input": "100 250",
+              "expectedOutput": "350",
+              "isSample": false
+            }
+          ]
+        }
+      ],
+      "createdAt": "2026-08-30T06:46:44.043Z"
     }
   },
   "activeTestIds": [

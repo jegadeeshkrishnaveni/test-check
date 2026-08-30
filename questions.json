@@ -1,11 +1,11 @@
 {
-  "examTitle": "Midterm Exam 2026",
-  "durationMinutes": 60,
-  "studentPassword": "midterm-pass",
+  "examTitle": "Final Exam Demo",
+  "durationMinutes": 90,
+  "studentPassword": "final",
   "isActive": true,
   "mcq": [
     {
-      "id": "m_1788071547565",
+      "id": "m_1788072404043",
       "question": "Which data structure follows the Last In First Out (LIFO) principle?",
       "options": [
         "Queue",
@@ -19,7 +19,7 @@
   ],
   "programs": [
     {
-      "id": "p_1788071547565",
+      "id": "p_1788072404043",
       "title": "Sum of Two Numbers",
       "statement": "Read two space-separated integers a and b from standard input and print their sum to standard output.",
       "marks": 5,
@@ -42,5 +42,5 @@
       ]
     }
   ],
-  "createdAt": "2026-08-30T06:32:27.565Z"
+  "createdAt": "2026-08-30T06:46:44.043Z"
 }
