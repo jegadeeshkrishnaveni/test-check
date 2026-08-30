@@ -2306,16 +2306,12 @@ async function duplicateTest(id) {
 
 async function deleteTestById(id) {
   if (!id) return;
-  if (availableTests.length <= 1) {
-    showAppToast('Cannot delete the only remaining test. Please create another test first.', 'warn');
-    return;
-  }
   const testObj = availableTests.find(t => t.id === id);
   const testName = testObj ? testObj.title : id;
 
   const confirmed = await showConfirmModal({
     title: 'Delete Exam',
-    message: `Are you sure you want to delete "${testName}"? All its MCQs, programs, and test cases will be removed.`,
+    message: `Are you sure you want to permanently delete "${testName}"? All its MCQs, programs, and test cases will be removed.`,
     icon: '🗑️',
     confirmText: 'Delete Exam',
     isDanger: true
@@ -2334,16 +2330,19 @@ async function deleteTestById(id) {
         saveLocalVault(vault);
       } catch (e) {}
 
-      // If active test was deleted, switch to next available test
+      showAppToast(`Deleted exam "${testName}" permanently.`, 'success');
+      await loadTestsList();
+
       if (id === currentTestId) {
-        currentTestId = data.newActiveId || (availableTests.find(t => t.id !== id)?.id || 'default');
-        await loadQuestions(currentTestId);
+        currentTestId = data.newActiveId || (availableTests.length > 0 ? availableTests[0].id : null);
+        if (currentTestId) {
+          await loadQuestions(currentTestId);
+        } else {
+          QUESTIONS = { examTitle: 'No Exams Available', durationMinutes: 60, studentPassword: '', isActive: false, mcq: [], programs: [] };
+        }
         renderQuestionManager();
         loadResults();
-      } else {
-        await loadTestsList();
       }
-      showAppToast(`Deleted exam "${testName}".`, 'success');
     } else {
       showAppToast(`Error deleting test: ${data.error || 'Unknown error'}`, 'error');
     }

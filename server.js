@@ -175,10 +175,10 @@ async function getTestsStore() {
     if (!data || !data.tests || Object.keys(data.tests).length === 0) {
       data = await safeRead(path.join(BASE_DATA_DIR, 'tests_store.json'), null);
     }
-    if (!data) data = { activeTestId: 'default', activeTestIds: ['default'], tests: {} };
+    if (!data) data = { activeTestId: null, activeTestIds: [], tests: {} };
     if (!data.tests) data.tests = {};
 
-    // Scan TESTS_DIR to ensure any disk test file is included
+    // Scan TESTS_DIR to ensure any disk test file is included if not in store
     try {
       if (fs.existsSync(TESTS_DIR)) {
         const files = await fs.promises.readdir(TESTS_DIR);
@@ -196,6 +196,22 @@ async function getTestsStore() {
       }
     } catch (e) {}
 
+    // Ensure explicit isActive boolean on every test
+    for (const [tId, tData] of Object.entries(data.tests)) {
+      if (tData) {
+        if (tData.isActive === undefined) {
+          tData.isActive = true;
+        } else {
+          tData.isActive = Boolean(tData.isActive);
+        }
+      }
+    }
+
+    data.activeTestIds = Object.keys(data.tests).filter(tId => data.tests[tId] && data.tests[tId].isActive === true);
+    if (!data.activeTestId || !data.tests[data.activeTestId]) {
+      data.activeTestId = data.activeTestIds[0] || Object.keys(data.tests)[0] || null;
+    }
+
     if (data.tests && Object.keys(data.tests).length > 0) {
       memoryCache.testsStore = data;
       return data;
@@ -205,17 +221,40 @@ async function getTestsStore() {
 }
 
 async function saveTestsStore(store) {
+  if (!store.tests) store.tests = {};
+  
+  // Clean up deleted test files from TESTS_DIR
+  try {
+    if (fs.existsSync(TESTS_DIR)) {
+      const existingFiles = await fs.promises.readdir(TESTS_DIR);
+      for (const f of existingFiles) {
+        if (f.endsWith('.json')) {
+          const fId = f.replace('.json', '');
+          if (!store.tests[fId]) {
+            try {
+              await fs.promises.unlink(path.join(TESTS_DIR, f));
+            } catch (e) {}
+          }
+        }
+      }
+    }
+  } catch (e) {}
+
+  // Update active test list
+  store.activeTestIds = Object.keys(store.tests).filter(tId => store.tests[tId] && store.tests[tId].isActive === true);
+  if (!store.activeTestId || !store.tests[store.activeTestId]) {
+    store.activeTestId = store.activeTestIds[0] || Object.keys(store.tests)[0] || null;
+  }
+
   memoryCache.testsStore = store;
   const jsonStr = JSON.stringify(store, null, 2);
   await safeWrite(TESTS_STORE_FILE, jsonStr);
   await safeWrite(path.join(BASE_DATA_DIR, 'tests_store.json'), jsonStr);
 
   // Write all test files to disk
-  if (store.tests) {
-    for (const [tId, tData] of Object.entries(store.tests)) {
-      if (tData) {
-        await safeWrite(path.join(TESTS_DIR, `${tId}.json`), JSON.stringify(tData, null, 2));
-      }
+  for (const [tId, tData] of Object.entries(store.tests)) {
+    if (tData) {
+      await safeWrite(path.join(TESTS_DIR, `${tId}.json`), JSON.stringify(tData, null, 2));
     }
   }
 }
@@ -226,7 +265,7 @@ async function ensureDefaultTestExists() {
     const store = await getTestsStore();
     if (!store.tests) store.tests = {};
 
-    // Only bootstrap default test if store has no tests at all
+    // Only bootstrap default test if store has completely zero tests on fresh installation
     if (Object.keys(store.tests).length === 0) {
       let initialData = DEFAULT_TEST_DATA;
       if (fs.existsSync(QUESTIONS_FILE)) {
@@ -238,18 +277,12 @@ async function ensureDefaultTestExists() {
           }
         } catch (e) {}
       }
+      initialData.isActive = true;
       store.tests['default'] = initialData;
       store.activeTestId = 'default';
       store.activeTestIds = ['default'];
       memoryCache.questions = initialData;
       await saveTestsStore(store);
-    } else {
-      if (!store.activeTestId || !store.tests[store.activeTestId]) {
-        store.activeTestId = Object.keys(store.tests)[0] || 'default';
-      }
-      if (!Array.isArray(store.activeTestIds) || store.activeTestIds.length === 0) {
-        store.activeTestIds = [store.activeTestId];
-      }
     }
   } catch (e) {
     console.warn('Bootstrap sync warning:', e.message);
@@ -868,15 +901,15 @@ app.get('/api/questions', async (req, res) => {
     }
     
     // Check active test in store
-    const activeId = store.activeTestId || (store.tests ? Object.keys(store.tests)[0] : 'default') || 'default';
-    if (store.tests && store.tests[activeId]) {
+    const activeId = store.activeTestId || (store.tests ? Object.keys(store.tests)[0] : null);
+    if (activeId && store.tests && store.tests[activeId]) {
       res.setHeader('Content-Type', 'application/json');
       return res.json({ ...store.tests[activeId], testId: activeId });
     }
     
     const fileData = await safeRead(QUESTIONS_FILE, memoryCache.questions || DEFAULT_TEST_DATA);
     res.setHeader('Content-Type', 'application/json');
-    res.json({ ...(fileData || DEFAULT_TEST_DATA), testId: 'default' });
+    res.json({ ...(fileData || DEFAULT_TEST_DATA), testId: activeId || 'default' });
   } catch (err) {
     console.error('Failed to read questions:', err);
     res.json({ ...(memoryCache.questions || DEFAULT_TEST_DATA), testId: 'default' });
@@ -889,55 +922,11 @@ app.get('/api/tests', async (req, res) => {
     const isStudent = req.query.role === 'student' || req.query.activeOnly === 'true';
     const store = await getTestsStore();
     if (!store.tests) store.tests = {};
-    if (!store.tests['default']) store.tests['default'] = DEFAULT_TEST_DATA;
-    if (!Array.isArray(store.activeTestIds)) {
-      store.activeTestIds = store.activeTestId ? [store.activeTestId] : ['default'];
-    }
 
-    let files = [];
-    try {
-      if (fs.existsSync(TESTS_DIR)) {
-        files = await fs.promises.readdir(TESTS_DIR);
-      }
-    } catch (e) {}
-    
     let tests = [];
-    const seenIds = new Set();
-
-    for (const f of files) {
-      if (f.endsWith('.json')) {
-        const id = f.replace('.json', '');
-        seenIds.add(id);
-        try {
-          const parsed = await safeRead(path.join(TESTS_DIR, f), null);
-          if (parsed) {
-            if (!store.tests[id]) store.tests[id] = parsed;
-            let isAct = (parsed.isActive !== undefined) ? !!parsed.isActive : (store.activeTestIds.includes(id) || id === store.activeTestId || id === 'default');
-            parsed.isActive = isAct;
-            const mcqTotalMarks = (parsed.mcq || []).reduce((acc, q) => acc + (q.marks || 1), 0);
-            const progTotalMarks = (parsed.programs || []).reduce((acc, p) => acc + (p.marks || 5), 0);
-            tests.push({
-              id,
-              title: parsed.examTitle || id,
-              durationMinutes: parsed.durationMinutes || 60,
-              studentPassword: parsed.studentPassword || STUDENT_PASSWORD,
-              mcqCount: (parsed.mcq || []).length,
-              programCount: (parsed.programs || []).length,
-              totalMarks: mcqTotalMarks + progTotalMarks,
-              updatedAt: parsed.updatedAt || parsed.createdAt || null,
-              isActive: isAct
-            });
-          }
-        } catch (e) {}
-      }
-    }
-
-    // Include tests from store not yet in files list
     for (const [id, parsed] of Object.entries(store.tests)) {
-      if (!seenIds.has(id) && parsed) {
-        seenIds.add(id);
-        let isAct = (parsed.isActive !== undefined) ? !!parsed.isActive : (store.activeTestIds.includes(id) || id === store.activeTestId || id === 'default');
-        parsed.isActive = isAct;
+      if (parsed) {
+        const isAct = parsed.isActive === true;
         const mcqTotalMarks = (parsed.mcq || []).reduce((acc, q) => acc + (q.marks || 1), 0);
         const progTotalMarks = (parsed.programs || []).reduce((acc, p) => acc + (p.marks || 5), 0);
         tests.push({
@@ -954,25 +943,6 @@ app.get('/api/tests', async (req, res) => {
       }
     }
 
-    if (tests.length === 0) {
-      tests.push({
-        id: 'default',
-        title: DEFAULT_TEST_DATA.examTitle,
-        durationMinutes: DEFAULT_TEST_DATA.durationMinutes,
-        studentPassword: DEFAULT_TEST_DATA.studentPassword,
-        mcqCount: DEFAULT_TEST_DATA.mcq.length,
-        programCount: DEFAULT_TEST_DATA.programs.length,
-        totalMarks: 12,
-        updatedAt: null,
-        isActive: true
-      });
-    }
-
-    store.activeTestIds = tests.filter(t => t.isActive).map(t => t.id);
-    if (!store.activeTestId || !store.activeTestIds.includes(store.activeTestId)) {
-      store.activeTestId = store.activeTestIds[0] || 'default';
-    }
-
     if (isStudent) {
       tests = tests.filter(t => t.isActive);
     } else {
@@ -983,12 +953,14 @@ app.get('/api/tests', async (req, res) => {
       });
     }
 
+    const activeList = Object.keys(store.tests).filter(tId => store.tests[tId] && store.tests[tId].isActive === true);
+
     res.json({
       tests,
       totalCount: tests.length,
-      activeCount: tests.filter(t => t.isActive).length,
+      activeCount: activeList.length,
       activeTestId: store.activeTestId,
-      activeTestIds: store.activeTestIds
+      activeTestIds: activeList
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to list tests: ' + err.message });
@@ -1004,24 +976,24 @@ app.post('/api/tests/toggle-active', async (req, res) => {
 
     const store = await getTestsStore();
     if (!store.tests) store.tests = {};
-    if (!Array.isArray(store.activeTestIds)) store.activeTestIds = [];
 
-    const targetFile = path.join(TESTS_DIR, `${id}.json`);
     let testObj = store.tests[id];
-    const onDisk = await safeRead(targetFile, null);
-    if (onDisk) testObj = onDisk;
+    if (!testObj) {
+      const targetFile = path.join(TESTS_DIR, `${id}.json`);
+      testObj = await safeRead(targetFile, null);
+    }
 
     if (!testObj) {
       return res.status(404).json({ error: 'Test not found' });
     }
 
+    // Set ONLY this test's isActive boolean
     testObj.isActive = shouldBeActive;
     testObj.updatedAt = new Date().toISOString();
-
-    // Persist
-    await safeWrite(targetFile, JSON.stringify(testObj, null, 2));
     store.tests[id] = testObj;
 
+    // Update active IDs list
+    if (!Array.isArray(store.activeTestIds)) store.activeTestIds = [];
     if (shouldBeActive) {
       if (!store.activeTestIds.includes(id)) {
         store.activeTestIds.push(id);
@@ -1035,6 +1007,7 @@ app.post('/api/tests/toggle-active', async (req, res) => {
       }
     }
 
+    // Save permanently to server disk
     await saveTestsStore(store);
 
     // Auto-sync in background
@@ -1066,21 +1039,16 @@ app.post('/api/tests/switch', async (req, res) => {
       return res.status(404).json({ error: 'Test not found' });
     }
 
-    testObj.isActive = true;
+    // Keep test's current isActive state intact
     const updatedStr = JSON.stringify(testObj, null, 2);
     await safeWrite(targetFile, updatedStr);
-    await safeWrite(QUESTIONS_FILE, updatedStr);
     
     if (!store.tests) store.tests = {};
     store.tests[id] = testObj;
-    if (!Array.isArray(store.activeTestIds)) store.activeTestIds = [];
-    if (!store.activeTestIds.includes(id)) store.activeTestIds.push(id);
     store.activeTestId = id;
     await saveTestsStore(store);
 
-    autoSyncToGitHub(`Activated and switched test to ${id}`).catch(() => {});
-
-    res.json({ success: true, message: `Activated and loaded "${testObj.examTitle || id}"`, data: testObj });
+    res.json({ success: true, message: `Loaded "${testObj.examTitle || id}"`, data: testObj });
   } catch (err) {
     res.status(500).json({ error: 'Failed to switch test: ' + err.message });
   }
@@ -1140,17 +1108,21 @@ app.post('/api/tests/create', async (req, res) => {
     const testFile = path.join(TESTS_DIR, `${testId}.json`);
     const jsonStr = JSON.stringify(newTestData, null, 2);
     await safeWrite(testFile, jsonStr);
-    await safeWrite(QUESTIONS_FILE, jsonStr);
 
     const store = await getTestsStore();
     if (!store.tests) store.tests = {};
     store.tests[testId] = newTestData;
-    store.activeTestId = testId;
+    if (markActive) {
+      if (!Array.isArray(store.activeTestIds)) store.activeTestIds = [];
+      if (!store.activeTestIds.includes(testId)) store.activeTestIds.push(testId);
+      store.activeTestId = testId;
+      await safeWrite(QUESTIONS_FILE, jsonStr);
+    }
     await saveTestsStore(store);
 
     autoSyncToGitHub(`Created test "${testTitle}"`).catch(() => {});
 
-    res.json({ success: true, testId, testData: newTestData, message: `Created and activated "${testTitle}"` });
+    res.json({ success: true, testId, testData: newTestData, message: `Created "${testTitle}" successfully` });
   } catch (err) {
     res.status(500).json({ error: 'Failed to create test: ' + err.message });
   }
@@ -1171,6 +1143,7 @@ app.post('/api/tests/duplicate', async (req, res) => {
 
     parsed = JSON.parse(JSON.stringify(parsed));
     parsed.examTitle = `${parsed.examTitle || 'Test'} (Copy)`;
+    parsed.isActive = false; // Duplicates start inactive by default so teacher can edit first
     parsed.createdAt = new Date().toISOString();
     parsed.updatedAt = new Date().toISOString();
 
@@ -1189,17 +1162,20 @@ app.post('/api/tests/duplicate', async (req, res) => {
   }
 });
 
-// 1f. Delete a test
+// 1f. Delete a test permanently
 app.delete('/api/tests/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const testFile = path.join(TESTS_DIR, `${id}.json`);
+    if (!id) return res.status(400).json({ error: 'Test ID is required' });
+
     const store = await getTestsStore();
     if (!store.tests) store.tests = {};
 
+    const testFile = path.join(TESTS_DIR, `${id}.json`);
     try {
       if (fs.existsSync(testFile)) await fs.promises.unlink(testFile);
     } catch (e) {}
+
     delete store.tests[id];
 
     if (Array.isArray(store.activeTestIds)) {
@@ -1210,16 +1186,15 @@ app.delete('/api/tests/:id', async (req, res) => {
     let newActiveId = null;
     let newActiveTitle = null;
 
-    if (store.activeTestId === id || remainingIds.length > 0) {
-      newActiveId = store.activeTestIds[0] || remainingIds[0] || 'default';
+    if (store.activeTestId === id || !store.tests[store.activeTestId]) {
+      newActiveId = store.activeTestIds[0] || remainingIds[0] || null;
       store.activeTestId = newActiveId;
       
-      const nextTestObj = store.tests[newActiveId];
-      if (nextTestObj) {
+      if (newActiveId && store.tests[newActiveId]) {
+        const nextTestObj = store.tests[newActiveId];
         newActiveTitle = nextTestObj.examTitle || 'Class Test';
         const nextContent = JSON.stringify(nextTestObj, null, 2);
         await safeWrite(QUESTIONS_FILE, nextContent);
-        await safeWrite(path.join(TESTS_DIR, `${newActiveId}.json`), nextContent);
       }
     }
 
@@ -1228,7 +1203,7 @@ app.delete('/api/tests/:id', async (req, res) => {
 
     res.json({
       success: true,
-      message: `Deleted test ${id}`,
+      message: `Deleted exam permanently`,
       newActiveId,
       newActiveTitle,
       remainingCount: remainingIds.length
@@ -1258,6 +1233,7 @@ app.post('/api/tests/restore', async (req, res) => {
           examTitle: data.examTitle || 'Restored Test',
           durationMinutes: parseInt(data.durationMinutes, 10) || 60,
           studentPassword: data.studentPassword || STUDENT_PASSWORD,
+          isActive: data.isActive !== undefined ? Boolean(data.isActive) : true,
           mcq: Array.isArray(data.mcq) ? data.mcq : [],
           programs: Array.isArray(data.programs) ? data.programs : [],
           updatedAt: data.updatedAt || new Date().toISOString()
@@ -1288,31 +1264,52 @@ app.get('/api/tests/export-bundle', async (req, res) => {
   }
 });
 
-// 2. Save Questions (Admin)
+// 2. Save Questions (Admin) - Permanently saves questions without disturbing active state
 app.post('/api/save-questions', async (req, res) => {
   try {
     const questionsData = req.body;
     if (!questionsData || !Array.isArray(questionsData.mcq) || !Array.isArray(questionsData.programs)) {
       return res.status(400).json({ error: 'Invalid questions payload' });
     }
-    questionsData.updatedAt = new Date().toISOString();
-    const jsonStr = JSON.stringify(questionsData, null, 2);
-    await safeWrite(QUESTIONS_FILE, jsonStr);
-
+    
     const testId = req.body.testId || 'default';
-    await safeWrite(path.join(TESTS_DIR, `${testId}.json`), jsonStr);
-
     const store = await getTestsStore();
     if (!store.tests) store.tests = {};
-    store.tests[testId] = questionsData;
-    store.activeTestId = testId;
-    await saveTestsStore(store);
 
-    autoSyncToGitHub(`Updated questions for ${questionsData.examTitle || testId}`).catch(() => {});
+    // Preserve existing isActive boolean so autosave does not tamper with test status
+    const existingTest = store.tests[testId] || {};
+    const preservedActive = questionsData.isActive !== undefined 
+      ? Boolean(questionsData.isActive) 
+      : (existingTest.isActive !== undefined ? Boolean(existingTest.isActive) : true);
+
+    const cleanData = {
+      ...questionsData,
+      isActive: preservedActive,
+      updatedAt: new Date().toISOString()
+    };
+    delete cleanData.testId;
+
+    const jsonStr = JSON.stringify(cleanData, null, 2);
+    await safeWrite(path.join(TESTS_DIR, `${testId}.json`), jsonStr);
+
+    store.tests[testId] = cleanData;
+    if (preservedActive && !store.activeTestIds?.includes(testId)) {
+      if (!Array.isArray(store.activeTestIds)) store.activeTestIds = [];
+      store.activeTestIds.push(testId);
+    } else if (!preservedActive && store.activeTestIds?.includes(testId)) {
+      store.activeTestIds = store.activeTestIds.filter(t => t !== testId);
+    }
+
+    if (store.activeTestId === testId || preservedActive) {
+      await safeWrite(QUESTIONS_FILE, jsonStr);
+    }
+
+    await saveTestsStore(store);
+    autoSyncToGitHub(`Updated questions for ${cleanData.examTitle || testId}`).catch(() => {});
 
     res.json({
       success: true,
-      message: 'Questions updated and saved successfully'
+      message: 'Questions updated and saved permanently'
     });
   } catch (err) {
     console.error('Error saving questions:', err);
