@@ -664,8 +664,21 @@
 <script src="vendor/codemirror/anyword-hint.min.js"></script>
 <script src="vendor/codemirror/comment.min.js"></script>
 
-<script type="module">
-import { executeCodeInBrowser } from '/code-runner.js';
+<script src="code-runner.js"></script>
+<script>
+// Resilient code runner executor
+async function executeCode(lang, code, stdin = '', timeoutMs = 6000) {
+  if (typeof window.executeCodeInBrowser === 'function') {
+    return window.executeCodeInBrowser(lang, code, stdin, timeoutMs);
+  }
+  try {
+    const mod = await import('./code-runner.js');
+    if (mod && mod.executeCodeInBrowser) {
+      return mod.executeCodeInBrowser(lang, code, stdin, timeoutMs);
+    }
+  } catch (e) {}
+  return { output: 'Code runner loading...', error: '' };
+}
 
 let QUESTIONS = null;
 let currentStudent = { roll: '', name: '' };
@@ -1233,7 +1246,7 @@ function renderTestUI() {
 
       for (let i = 0; i < sampleCases.length; i++) {
         const tc = sampleCases[i];
-        const res = await executeCodeInBrowser(lang, code, tc.input);
+        const res = await executeCode(lang, code, tc.input);
         const gotTrimmed = (res.output || '').trim();
         const expTrimmed = (tc.expectedOutput || '').trim();
         const pass = gotTrimmed === expTrimmed;
@@ -1412,7 +1425,7 @@ async function submitTestFinal() {
       const tc = testCases[i];
       let res = { output: '', error: null };
       try {
-        res = await executeCodeInBrowser(lang, code, tc.input);
+        res = await executeCode(lang, code, tc.input);
       } catch (err) {
         res = { output: err.message || 'Execution Error', error: String(err) };
       }

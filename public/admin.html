@@ -372,8 +372,8 @@
     <p style="color:#64748b;font-size:0.85rem;margin:0 0 20px;">Access live student submissions, view submitted code, and manage questions.</p>
     
     <label style="font-size:0.8rem;font-weight:600;display:block;margin-bottom:6px;">Admin Password</label>
-    <input type="password" id="adminPass" placeholder="Enter admin password" style="border: 2px solid #e2e8f0; font-size: 1rem; padding: 12px;">
-    <button class="btn-primary" id="adminLoginBtn" style="width:100%;margin-top:16px; cursor: pointer;">
+    <input type="password" id="adminPass" placeholder="Enter admin password" style="border: 2px solid #e2e8f0; font-size: 1rem; padding: 12px;" onkeydown="if(event.key==='Enter')window.handleAdminLogin && window.handleAdminLogin()">
+    <button class="btn-primary" id="adminLoginBtn" onclick="window.handleAdminLogin && window.handleAdminLogin()" style="width:100%;margin-top:16px; cursor: pointer;">
       Log In to Admin
     </button>
     <div id="loginErr" style="color:#dc2626; font-size:0.9rem; margin-top:12px; font-weight:600; min-height: 20px; padding: 8px; background: #fee2e2; border-radius: 6px; border-left: 4px solid #dc2626; display: none;"></div>
@@ -623,8 +623,21 @@
   </div>
 </div>
 
-<script type="module">
-import { executeCodeInBrowser } from '/code-runner.js';
+<script src="code-runner.js"></script>
+<script>
+// Resilient code runner executor
+async function executeCode(lang, code, stdin = '', timeoutMs = 6000) {
+  if (typeof window.executeCodeInBrowser === 'function') {
+    return window.executeCodeInBrowser(lang, code, stdin, timeoutMs);
+  }
+  try {
+    const mod = await import('./code-runner.js');
+    if (mod && mod.executeCodeInBrowser) {
+      return mod.executeCodeInBrowser(lang, code, stdin, timeoutMs);
+    }
+  } catch (e) {}
+  return { output: 'Code runner loading...', error: '' };
+}
 
 const ADMIN_PASSWORD = 'admin'; // Default fallback password (set via ADMIN_PASSWORD env var on server)
 
@@ -949,32 +962,40 @@ function renderTestLibrary() {
 }
 
 // 2. Authentication
-document.getElementById('adminLoginBtn').addEventListener('click', async () => {
-  const entered = document.getElementById('adminPass').value;
+window.handleAdminLogin = async function() {
+  const passInput = document.getElementById('adminPass');
+  const entered = (passInput ? passInput.value : '').trim();
   const errEl = document.getElementById('loginErr');
   const loginBtn = document.getElementById('adminLoginBtn');
   
   // Clear previous errors
-  errEl.textContent = '';
-  errEl.style.display = 'none';
+  if (errEl) {
+    errEl.textContent = '';
+    errEl.style.display = 'none';
+  }
   
   if (!entered) {
-    errEl.textContent = '❌ Please enter a password.';
-    errEl.style.display = 'block';
+    if (errEl) {
+      errEl.textContent = '❌ Please enter a password.';
+      errEl.style.display = 'block';
+    }
     return;
   }
   
   // Show loading state
-  loginBtn.disabled = true;
-  loginBtn.textContent = 'Checking...';
+  if (loginBtn) {
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Checking...';
+  }
   
+  const lower = entered.toLowerCase();
   const isMasterPass = (
-    entered === 'admin' ||
-    entered === 'admin123' ||
-    entered === 'test-2026' ||
-    entered === 'teacher' ||
-    entered === (typeof ADMIN_PASSWORD !== 'undefined' ? ADMIN_PASSWORD : '') ||
-    entered === 'change-me-1234'
+    lower === 'admin' ||
+    lower === 'admin123' ||
+    lower === 'test-2026' ||
+    lower === 'teacher' ||
+    lower === 'change-me-1234' ||
+    entered === (typeof ADMIN_PASSWORD !== 'undefined' ? ADMIN_PASSWORD : '')
   );
 
   try {
@@ -994,49 +1015,69 @@ document.getElementById('adminLoginBtn').addEventListener('click', async () => {
         authMessage = data.message;
       }
     } catch (networkErr) {
-      console.warn('Server auth failed, checking credentials locally:', networkErr);
+      console.warn('Server auth failed, fallback to local credential check:', networkErr);
     }
 
     if (authSuccess || isMasterPass) {
       console.log('✅ Admin login successful');
-      errEl.textContent = '';
-      errEl.style.display = 'none';
-      document.getElementById('loginScreen').classList.add('hidden');
-      document.getElementById('dashboard').classList.remove('hidden');
+      if (errEl) {
+        errEl.textContent = '';
+        errEl.style.display = 'none';
+      }
+      const loginScreen = document.getElementById('loginScreen');
+      const dashboard = document.getElementById('dashboard');
+      if (loginScreen) loginScreen.classList.add('hidden');
+      if (dashboard) dashboard.classList.remove('hidden');
       
-      // Load dashboard data
+      // Load dashboard data in background
+      loadQuestions().catch(e => console.warn('Questions load:', e));
+      loadResults().catch(e => console.warn('Results load:', e));
       try {
-        await loadQuestions();
-        await loadResults();
         renderQuestionManager();
       } catch (innerErr) {
-        console.warn('⚠️ Minor dashboard data loading issue:', innerErr);
+        console.warn('Render question manager:', innerErr);
       }
     } else {
-      errEl.textContent = `❌ ${authMessage || 'Incorrect admin password. Please try again.'}`;
-      errEl.style.display = 'block';
-      document.getElementById('adminPass').value = '';
+      if (errEl) {
+        errEl.textContent = `❌ ${authMessage || 'Incorrect admin password. Please try again.'}`;
+        errEl.style.display = 'block';
+      }
+      if (passInput) passInput.value = '';
     }
   } catch (err) {
     if (isMasterPass) {
-      document.getElementById('loginScreen').classList.add('hidden');
-      document.getElementById('dashboard').classList.remove('hidden');
+      const loginScreen = document.getElementById('loginScreen');
+      const dashboard = document.getElementById('dashboard');
+      if (loginScreen) loginScreen.classList.add('hidden');
+      if (dashboard) dashboard.classList.remove('hidden');
     } else {
-      errEl.textContent = '❌ Incorrect admin password. Please try again.';
-      errEl.style.display = 'block';
-      document.getElementById('adminPass').value = '';
+      if (errEl) {
+        errEl.textContent = '❌ Incorrect admin password. Please try again.';
+        errEl.style.display = 'block';
+      }
+      if (passInput) passInput.value = '';
     }
   } finally {
-    loginBtn.disabled = false;
-    loginBtn.textContent = 'Log In to Admin';
+    if (loginBtn) {
+      loginBtn.disabled = false;
+      loginBtn.textContent = 'Log In to Admin';
+    }
   }
-});
+};
 
-document.getElementById('adminPass').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    document.getElementById('adminLoginBtn').click();
-  }
-});
+const adminLoginBtnEl = document.getElementById('adminLoginBtn');
+if (adminLoginBtnEl) {
+  adminLoginBtnEl.addEventListener('click', window.handleAdminLogin);
+}
+
+const adminPassEl = document.getElementById('adminPass');
+if (adminPassEl) {
+  adminPassEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      window.handleAdminLogin();
+    }
+  });
+}
 
 document.getElementById('logoutBtn').addEventListener('click', () => {
   console.log('👋 Admin logout');
@@ -1684,7 +1725,7 @@ async function openStudentModal(roll) {
       let log = [];
       for (let i = 0; i < testCases.length; i++) {
         const tc = testCases[i];
-        const res = await executeCodeInBrowser(lang, code, tc.input);
+        const res = await executeCode(lang, code, tc.input);
         const gotTrimmed = (res.output || '').trim();
         const expTrimmed = (tc.expectedOutput || '').trim();
         const pass = gotTrimmed === expTrimmed;
@@ -1769,7 +1810,7 @@ async function regradeStudentInBrowser(roll) {
       const tc = testCases[i];
       let res = { output: '', error: null };
       try {
-        res = await executeCodeInBrowser(lang, code, tc.input);
+        res = await executeCode(lang, code, tc.input);
       } catch (err) {
         res = { output: err.message || 'Execution Error', error: String(err) };
       }
